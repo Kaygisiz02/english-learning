@@ -108,6 +108,12 @@ body{
 .stage-pill-bar{flex:1; height:5px; background:var(--line); border-radius:3px; overflow:hidden;}
 .stage-pill-fill{height:100%; background:var(--ink-red);}
 .stage-pill-count{font-size:11.5px; color:var(--muted); flex-shrink:0; min-width:44px; text-align:right;}
+.stage-pill-review-btn{
+  flex-shrink:0; font-family:Georgia,serif; font-size:11px; font-weight:700;
+  background:#fff; color:var(--ink-navy); border:1.5px solid var(--ink-navy);
+  border-radius:4px; padding:5px 10px; cursor:pointer; white-space:nowrap;
+}
+.stage-pill-review-btn:hover{background:var(--ink-navy); color:#fff;}
 
 /* ---- lesson / card ---- */
 .lesson-head{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px;}
@@ -546,12 +552,13 @@ let browseState = { stageFilter: 0, query: "" };
 
 const VIEWS = ["home","lesson","practice","mistakes","stats","browse"];
 
-function setView(name){
+function setView(name, skipLessonInit){
   currentView = name;
   VIEWS.forEach(v => {
     document.getElementById("view-"+v).classList.toggle("hidden", v !== name);
   });
-  if(name === "lesson") initLesson();
+  if(name === "lesson" && !skipLessonInit) initLesson();
+  if(name === "lesson" && skipLessonInit) renderLesson(); // lessonState zaten çağıran tarafından kuruldu (örn. startStageReview)
   if(name === "practice") initPractice();
   if(name === "mistakes") renderMistakes();
   if(name === "stats") renderStats();
@@ -656,18 +663,20 @@ function renderHome(){
     const inStage = Object.keys(progress.learned).filter(id => id>=s.from && id<=s.to).length;
     const total = s.to - s.from + 1;
     const isActive = i === currentStageIdx;
+    const isComplete = inStage === total;
     html += `
       <div class="stage-pill ${isActive?'active':''}">
         <div class="stage-pill-num">${i+1}</div>
         <div class="stage-pill-name">${escapeHtml(s.name)}</div>
         <div class="stage-pill-bar"><div class="stage-pill-fill" style="width:${(inStage/total)*100}%"></div></div>
         <div class="stage-pill-count">${inStage}/${total}</div>
+        ${isComplete ? `<button class="stage-pill-review-btn" onclick="startStageReview(${i})">↻ Tekrar Çalış</button>` : ""}
       </div>
     `;
   });
 
   html += `</div>
-    <div class="build-version-tag">Sürüm: 2026-08-27 · Ders/Pratik ekranlarında "Ana Sayfaya Dön" linki eklendi</div>`;
+    <div class="build-version-tag">Sürüm: 2026-08-27 · Tamamlanmış aşamalar artık "Tekrar Çalış" ile yeniden yapılabiliyor</div>`;
   document.getElementById("view-home").innerHTML = html;
 }
 
@@ -680,8 +689,20 @@ function initLesson(){
   const dailyCount = (progress.settings && progress.settings.dailyNewCount) || 8;
   const ids = [];
   for(let i=startId; i<startId+dailyCount && i<=600; i++) ids.push(i);
-  lessonState = { ids, idx:0, phase:"teach", answer:"", feedback:null, recognizeOptions:null, recognizeSelected:null, buildTiles:null, buildAnswer:[], buildCorrectOrder:null, buildFeedback:null };
+  lessonState = { mode:"new", ids, idx:0, phase:"teach", answer:"", feedback:null, recognizeOptions:null, recognizeSelected:null, buildTiles:null, buildAnswer:[], buildCorrectOrder:null, buildFeedback:null };
   renderLesson();
+}
+
+// Tamamlanmış bir aşamayı, ilerlemeye (progress.learned / spaced-repetition
+// takvimine) DOKUNMADAN yeniden Ders akışından (teach->recognize->build->recall)
+// geçirmek için kullanılır. stageIdx: STAGES dizisindeki 0-tabanlı indeks.
+function startStageReview(stageIdx){
+  clearTimeout(pendingAutoSpeakTimer);
+  const stage = STAGES[stageIdx];
+  const ids = [];
+  for(let i=stage.from; i<=stage.to; i++) ids.push(i);
+  lessonState = { mode:"review", stageIdx, ids, idx:0, phase:"teach", answer:"", feedback:null, recognizeOptions:null, recognizeSelected:null, buildTiles:null, buildAnswer:[], buildCorrectOrder:null, buildFeedback:null };
+  setView("lesson", true); // true: initLesson() atlanır, lessonState üzerine yazılmaz
 }
 
 function renderLesson(){
@@ -704,15 +725,20 @@ function renderLesson(){
       const s = findSentence(id);
       listHtml += `<div class="done-item"><span class="done-item-en">${escapeHtml(s.en)}</span><span class="done-item-tr">${escapeHtml(s.tr)}</span></div>`;
     });
+    const isReview = lessonState.mode === "review";
+    const title = isReview ? "Aşama Tekrarı Tamamlandı" : "Bugünkü Ders Tamamlandı";
+    const desc = isReview
+      ? `${ids.length} cümleyi tekrar çalıştın: ${ids[0]}–${ids[ids.length-1]}. Bu bir pratik oturumuydu; ilerleme ve tekrar takvimin değişmedi.`
+      : `${ids.length} yeni cümle öğrendin: ${ids[0]}–${ids[ids.length-1]}. Bunlar bugün ve yarın kısa tekrarla karşına çıkacak.`;
     el.innerHTML = `
       <div class="panel">
         <div class="done-stamp">✓</div>
-        <h2 class="panel-title" style="text-align:center">Bugünkü Ders Tamamlandı</h2>
-        <p class="panel-text" style="text-align:center">${ids.length} yeni cümle öğrendin: ${ids[0]}–${ids[ids.length-1]}. Bunlar bugün ve yarın kısa tekrarla karşına çıkacak.</p>
+        <h2 class="panel-title" style="text-align:center">${title}</h2>
+        <p class="panel-text" style="text-align:center">${desc}</p>
         <div class="done-list">${listHtml}</div>
         <div class="hero-buttons">
           <button class="btn-primary" onclick="setView('home')">Ana Sayfaya Dön</button>
-          <button class="btn-secondary" onclick="setView('practice')">Şimdi Pratik Yap</button>
+          ${!isReview ? `<button class="btn-secondary" onclick="setView('practice')">Şimdi Pratik Yap</button>` : ""}
         </div>
       </div>`;
     return;
@@ -721,6 +747,9 @@ function renderLesson(){
   const sentence = findSentence(ids[idx]);
   const stageIdx = stageOf(sentence.id);
   const stage = STAGES[stageIdx];
+  // Review modunda breadcrumb'a ek etiket koyup kullanıcının normal ders mi
+  // yoksa serbest tekrar mı yaptığını her an net görmesini sağlıyoruz.
+  const modeTag = lessonState.mode === "review" ? " · Tekrar" : "";
 
   if(phase === "teach"){
     const siblings = getPatternSiblings(sentence.id);
@@ -739,7 +768,7 @@ function renderLesson(){
     el.innerHTML = `
       <div class="lesson-exit-row"><button class="lesson-exit-link" onclick="setView('home')">← Ana Sayfaya Dön</button></div>
       <div class="lesson-head">
-        <div class="lesson-breadcrumb">Aşama ${stageIdx+1} · ${escapeHtml(stage.name)}</div>
+        <div class="lesson-breadcrumb">Aşama ${stageIdx+1} · ${escapeHtml(stage.name)}${modeTag}</div>
         <div class="lesson-counter">${idx+1} / ${ids.length}</div>
       </div>
       <div class="teach-card">
@@ -786,7 +815,7 @@ function renderLesson(){
     el.innerHTML = `
       <div class="lesson-exit-row"><button class="lesson-exit-link" onclick="setView('home')">← Ana Sayfaya Dön</button></div>
       <div class="lesson-head">
-        <div class="lesson-breadcrumb">Aşama ${stageIdx+1} · ${escapeHtml(stage.name)} · Tanıma</div>
+        <div class="lesson-breadcrumb">Aşama ${stageIdx+1} · ${escapeHtml(stage.name)} · Tanıma${modeTag}</div>
         <div class="lesson-counter">${idx+1} / ${ids.length}</div>
       </div>
       <div class="teach-card">
@@ -845,7 +874,7 @@ function renderLesson(){
     el.innerHTML = `
       <div class="lesson-exit-row"><button class="lesson-exit-link" onclick="setView('home')">← Ana Sayfaya Dön</button></div>
       <div class="lesson-head">
-        <div class="lesson-breadcrumb">Aşama ${stageIdx+1} · ${escapeHtml(stage.name)} · Cümle Dizme</div>
+        <div class="lesson-breadcrumb">Aşama ${stageIdx+1} · ${escapeHtml(stage.name)} · Cümle Dizme${modeTag}</div>
         <div class="lesson-counter">${idx+1} / ${ids.length}</div>
       </div>
       <div class="teach-card">
@@ -884,7 +913,7 @@ function renderLesson(){
     el.innerHTML = `
       <div class="lesson-exit-row"><button class="lesson-exit-link" onclick="setView('home')">← Ana Sayfaya Dön</button></div>
       <div class="lesson-head">
-        <div class="lesson-breadcrumb">Aşama ${stageIdx+1} · ${escapeHtml(stage.name)}</div>
+        <div class="lesson-breadcrumb">Aşama ${stageIdx+1} · ${escapeHtml(stage.name)}${modeTag}</div>
         <div class="lesson-counter">${idx+1} / ${ids.length}</div>
       </div>
       <div class="teach-card">
@@ -1019,10 +1048,19 @@ function lessonCheckBuild(){
 }
 
 /* ---- RECALL (serbest yazma) — mevcut mantık, artık learned burada işaretleniyor ---- */
-function lessonMarkLearned(id){
+function lessonMarkLearned(id, wasCorrect){
+  // Güvenlik: cümle daha önce öğrenilmişse (örn. ileride bu fonksiyon başka
+  // bir yerden de çağrılırsa) üzerine yazıp ilerlemesini sıfırlamıyoruz.
+  // Böylece bu invariant çağıran koda değil, fonksiyonun kendisine bağlı olur.
+  if(progress.learned[id]) return;
   const today = todayStr();
+  // İlk öğrenmede de scheduleNext ile aynı mantığı kullanıyoruz: doğru
+  // cevaplandıysa bir sonraki kademeye (1 gün) geçiyor, yanlış/gösterildiyse
+  // aynı kademede (0 = bugün) kalıyor. Böylece Ders'teki ilk cevap da
+  // Pratik'teki tekrarlarla tutarlı bir şekilde aralığı etkiliyor.
+  const schedule = scheduleNext({ reviewStep: 0 }, !!wasCorrect);
   progress.learned[id] = {
-    firstLearned: today, reviewStep: 0, nextReview: today, correctStreak: 0, timesWrong: 0
+    firstLearned: today, ...schedule, correctStreak: wasCorrect ? 1 : 0, timesWrong: wasCorrect ? 0 : 1
   };
   if(!progress.dailyLog[today]) progress.dailyLog[today] = { newCount:0, reviewCount:0 };
   progress.dailyLog[today].newCount += 1;
@@ -1038,18 +1076,28 @@ function lessonCheckAnswer(){
     const m = progress.mistakes[sentence.id] || { count:0 };
     progress.mistakes[sentence.id] = { count:m.count+1, lastWrong: todayStr(), yourAnswer: lessonState.answer };
   }
-  // Recall adımına kadar geldiyse (tanıma + dizme aşamalarını geçtiyse)
-  // cümleyi öğrenilmiş sayıp tekrar kuyruğuna ekliyoruz — doğru/yanlış
-  // fark etmeksizin, çünkü aralıklı tekrar sistemi zaten yanlış cevaplarda
-  // daha sık karşısına çıkaracak (scheduleNext mantığı).
-  if(!progress.learned[sentence.id]) lessonMarkLearned(sentence.id);
+  // Normal ("new") modda: recall adımına kadar geldiyse cümleyi öğrenilmiş
+  // sayıp tekrar kuyruğuna ekliyoruz. Doğru cevap aralığı 1 güne açar,
+  // yanlış cevap aynı gün (0) kademesinde tutar.
+  // "review" modda (tamamlanmış bir aşamayı yeniden çalışma) ise ilerlemeye
+  // ve spaced-repetition takvimine HİÇ dokunmuyoruz — bu sadece serbest
+  // pratik, mevcut tekrar programını bozmamalı. Yanlış cevaplar yine de
+  // yukarıda "mistakes" listesine eklendi, bu faydalı bir yan etki.
+  if(lessonState.mode !== "review"){
+    lessonMarkLearned(sentence.id, correct);
+  }
   saveProgress();
   renderLesson();
 }
 function lessonReveal(){
   lessonState.feedback = "revealed";
   const sentence = findSentence(lessonState.ids[lessonState.idx]);
-  if(!progress.learned[sentence.id]) lessonMarkLearned(sentence.id);
+  // Cevap gösterildiyse kullanıcı bilmiyor demektir; yanlış cevap gibi ele
+  // alıp aynı gün (0) kademesinde tutuyoruz ki cümle hemen tekrar karşısına
+  // çıksın. Review modunda ise (yukarıdaki gerekçeyle) hiç dokunmuyoruz.
+  if(lessonState.mode !== "review"){
+    lessonMarkLearned(sentence.id, false);
+  }
   saveProgress();
   renderLesson();
 }
@@ -1075,7 +1123,7 @@ function lessonNextCard(){
 function initPractice(){
   clearTimeout(pendingAutoSpeakTimer); // başka bir ekrandan (örn. Ders) kalan bekleyen ses varsa iptal
   const dueIds = getDueReviews();
-  practiceState = { queue: dueIds.slice(), total: dueIds.length, correct:0, wrong:0, answer:"", feedback:null };
+  practiceState = { queue: dueIds.slice(), total: dueIds.length, correct:0, wrong:0, answer:"", feedback:null, canUndo:false, preAnswerRec:null, undoneId:null };
   renderPractice();
 }
 
@@ -1112,8 +1160,18 @@ function renderPractice(){
 
   let feedbackHtml = "";
   if(fb){
-    const cls = fb === "correct" ? "feedback-good" : "feedback-bad";
-    const label = fb === "correct" ? "Doğru! Tekrar aralığı uzatıldı." : "Bu cümle daha sık karşına çıkacak.";
+    const cls = (fb === "correct") ? "feedback-good" : (fb === "undone" ? "feedback-bad" : "feedback-bad");
+    let label;
+    if(fb === "correct") label = "Doğru! Tekrar aralığı uzatıldı.";
+    else if(fb === "undone") label = "Düzeltildi — bu cümle artık yanlış sayıldı ve daha sık karşına çıkacak.";
+    else label = "Bu cümle daha sık karşına çıkacak.";
+
+    // Cevap "doğru" olarak işaretlendiyse ve henüz geri alınmadıysa, kullanıcı
+    // fikrini değiştirip "aslında bilmiyordum" diyebilsin diye küçük bir link sunuyoruz.
+    const undoLinkHtml = (fb === "correct" && practiceState.canUndo)
+      ? `<button class="undo-correct-link" onclick="practiceUndoCorrect()">Aslında bilmiyordum, düzelt</button>`
+      : "";
+
     feedbackHtml = `
       <div class="feedback-box ${cls}">
         <div class="feedback-answer-row">
@@ -1121,6 +1179,7 @@ function renderPractice(){
           <button class="speak-btn" id="practice-feedback-speak-btn" onclick="speakBtn(${jsStr(sentence.en)}, this)" title="Sesli dinle" aria-label="Sesli dinle">🔊</button>
         </div>
         <div class="feedback-label">${label}</div>
+        ${undoLinkHtml}
         <button class="btn-primary" onclick="practiceNextItem()">Sıradaki</button>
       </div>`;
   }
@@ -1170,6 +1229,15 @@ function practiceCheckAnswer(){
   practiceState.feedback = correct ? "correct" : "wrong";
 
   const rec = progress.learned[currentId] || {};
+  // Cevap "doğru" çıkarsa, kullanıcı daha sonra "aslında bilmiyordum, şansa
+  // denk geldi" diyip geri alabilsin diye, güncellemeden HEMEN ÖNCEKİ rec'i
+  // ayrıca saklıyoruz. Geri alma, bu orijinal rec üzerinden "yanlış" olarak
+  // yeniden zamanlanacak — böylece "doğruyu geri al, sonra yanlışı uygula"
+  // gibi çift işlem yerine, hiç doğru cevaplanmamış gibi temiz bir hesaplama olur.
+  practiceState.canUndo = correct;
+  practiceState.preAnswerRec = correct ? Object.assign({}, rec) : null;
+  practiceState.undoneId = correct ? currentId : null;
+
   const updatedSchedule = scheduleNext(rec, correct);
   progress.learned[currentId] = Object.assign({}, rec, updatedSchedule, {
     correctStreak: correct ? (rec.correctStreak||0)+1 : 0,
@@ -1192,6 +1260,34 @@ function practiceCheckAnswer(){
   practiceState.wrong += correct ? 0 : 1;
   renderPractice();
 }
+function practiceUndoCorrect(){
+  // Kullanıcı "Doğru" işaretlenen bir cevabı geri alıp "aslında bilmiyordum"
+  // diyor. Sadece az önce BU cevap için (başka bir karta geçilmeden) çağrılabilir.
+  if(!practiceState.canUndo || practiceState.undoneId === null) return;
+  const currentId = practiceState.undoneId;
+  const originalRec = practiceState.preAnswerRec || {};
+
+  // Az önceki "doğru" güncellemesini saymadan, orijinal rec üzerinden
+  // doğrudan "yanlış" olarak yeniden zamanla.
+  const updatedSchedule = scheduleNext(originalRec, false);
+  progress.learned[currentId] = Object.assign({}, originalRec, updatedSchedule, {
+    correctStreak: 0,
+    timesWrong: (originalRec.timesWrong||0)+1
+  });
+
+  const m = progress.mistakes[currentId] || { count:0 };
+  progress.mistakes[currentId] = { count:m.count+1, lastWrong: todayStr(), yourAnswer: practiceState.answer + " (sonradan 'bilmiyordum' olarak düzeltildi)" };
+
+  // Oturum sayaçlarını da düzelt: bu cevap artık doğru değil, yanlış sayılıyor.
+  practiceState.correct = Math.max(0, practiceState.correct - 1);
+  practiceState.wrong += 1;
+  practiceState.feedback = "undone";
+  practiceState.canUndo = false;
+
+  saveProgress();
+  updateTopbar();
+  renderPractice();
+}
 function practiceReveal(){
   practiceState.feedback = "revealed";
   const currentId = practiceState.queue[0];
@@ -1210,6 +1306,11 @@ function practiceNextItem(){
   clearTimeout(pendingAutoSpeakTimer); // önceki cümlenin feedback sesi kalmışsa iptal
   practiceState.answer = "";
   practiceState.feedback = null;
+  // Bir sonraki karta geçince "Aslında Bilmiyordum" artık bu karta ait
+  // olmadığı için geri alma imkanını da sıfırlıyoruz.
+  practiceState.canUndo = false;
+  practiceState.preAnswerRec = null;
+  practiceState.undoneId = null;
   practiceState.queue.shift();
   renderPractice();
 }
