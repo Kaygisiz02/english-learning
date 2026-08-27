@@ -676,7 +676,7 @@ function renderHome(){
   });
 
   html += `</div>
-    <div class="build-version-tag">Sürüm: 2026-08-27 · Tamamlanmış aşamalar artık "Tekrar Çalış" ile yeniden yapılabiliyor</div>`;
+    <div class="build-version-tag">Sürüm: 2026-08-27 · Zayıf Noktalar artık çalışılıp tamamlanabiliyor</div>`;
   document.getElementById("view-home").innerHTML = html;
 }
 
@@ -705,6 +705,22 @@ function startStageReview(stageIdx){
   setView("lesson", true); // true: initLesson() atlanır, lessonState üzerine yazılmaz
 }
 
+// Zayıf Noktalar listesindeki tüm cümleleri (en çok hata yapılandan aza
+// doğru) Ders akışıyla (teach->recognize->build->recall) çalıştırır.
+// "review" modu gibi progress.learned'ın tekrar takvimine dokunmaz, ama
+// ondan farklı olarak: recall'da DOĞRU cevaplanan bir cümle mistakes
+// listesinden tamamen SİLİNİR (gerçek "tamamlama" hissi vermek için).
+// Yanlış cevaplanırsa mevcut mekanizma zaten count'u artırır, liste kalır.
+function startMistakesReview(){
+  clearTimeout(pendingAutoSpeakTimer);
+  const ids = Object.keys(progress.mistakes)
+    .map(Number)
+    .sort((a,b) => (progress.mistakes[b].count - progress.mistakes[a].count));
+  if(ids.length === 0) return; // buton zaten sadece liste doluyken gösteriliyor, ekstra güvenlik
+  lessonState = { mode:"mistakes", ids, idx:0, phase:"teach", answer:"", feedback:null, recognizeOptions:null, recognizeSelected:null, buildTiles:null, buildAnswer:[], buildCorrectOrder:null, buildFeedback:null, mistakesResolvedCount:0 };
+  setView("lesson", true);
+}
+
 function renderLesson(){
   const el = document.getElementById("view-lesson");
   if(!lessonState || lessonState.ids.length === 0){
@@ -725,11 +741,24 @@ function renderLesson(){
       const s = findSentence(id);
       listHtml += `<div class="done-item"><span class="done-item-en">${escapeHtml(s.en)}</span><span class="done-item-tr">${escapeHtml(s.tr)}</span></div>`;
     });
-    const isReview = lessonState.mode === "review";
-    const title = isReview ? "Aşama Tekrarı Tamamlandı" : "Bugünkü Ders Tamamlandı";
-    const desc = isReview
-      ? `${ids.length} cümleyi tekrar çalıştın: ${ids[0]}–${ids[ids.length-1]}. Bu bir pratik oturumuydu; ilerleme ve tekrar takvimin değişmedi.`
-      : `${ids.length} yeni cümle öğrendin: ${ids[0]}–${ids[ids.length-1]}. Bunlar bugün ve yarın kısa tekrarla karşına çıkacak.`;
+    let title, desc, showPracticeBtn;
+    if(lessonState.mode === "mistakes"){
+      const resolved = lessonState.mistakesResolvedCount || 0;
+      const remaining = ids.length - resolved;
+      title = "Zayıf Noktalar Oturumu Tamamlandı";
+      desc = remaining === 0
+        ? `Harika! ${ids.length} zayıf noktanın tamamını doğru bildin, defter artık bomboş.`
+        : `${resolved} cümleyi doğru bilip listeden çıkardın. ${remaining} cümle hâlâ zayıf noktalarında — istersen hemen tekrar çalışabilirsin.`;
+      showPracticeBtn = false;
+    } else if(lessonState.mode === "review"){
+      title = "Aşama Tekrarı Tamamlandı";
+      desc = `${ids.length} cümleyi tekrar çalıştın: ${ids[0]}–${ids[ids.length-1]}. Bu bir pratik oturumuydu; ilerleme ve tekrar takvimin değişmedi.`;
+      showPracticeBtn = false;
+    } else {
+      title = "Bugünkü Ders Tamamlandı";
+      desc = `${ids.length} yeni cümle öğrendin: ${ids[0]}–${ids[ids.length-1]}. Bunlar bugün ve yarın kısa tekrarla karşına çıkacak.`;
+      showPracticeBtn = true;
+    }
     el.innerHTML = `
       <div class="panel">
         <div class="done-stamp">✓</div>
@@ -738,7 +767,8 @@ function renderLesson(){
         <div class="done-list">${listHtml}</div>
         <div class="hero-buttons">
           <button class="btn-primary" onclick="setView('home')">Ana Sayfaya Dön</button>
-          ${!isReview ? `<button class="btn-secondary" onclick="setView('practice')">Şimdi Pratik Yap</button>` : ""}
+          ${showPracticeBtn ? `<button class="btn-secondary" onclick="setView('practice')">Şimdi Pratik Yap</button>` : ""}
+          ${lessonState.mode === "mistakes" && (ids.length - (lessonState.mistakesResolvedCount||0)) > 0 ? `<button class="btn-secondary" onclick="setView('mistakes')">Zayıf Noktalara Bak</button>` : ""}
         </div>
       </div>`;
     return;
@@ -749,7 +779,7 @@ function renderLesson(){
   const stage = STAGES[stageIdx];
   // Review modunda breadcrumb'a ek etiket koyup kullanıcının normal ders mi
   // yoksa serbest tekrar mı yaptığını her an net görmesini sağlıyoruz.
-  const modeTag = lessonState.mode === "review" ? " · Tekrar" : "";
+  const modeTag = lessonState.mode === "review" ? " · Tekrar" : (lessonState.mode === "mistakes" ? " · Zayıf Nokta" : "");
 
   if(phase === "teach"){
     const siblings = getPatternSiblings(sentence.id);
@@ -1075,15 +1105,21 @@ function lessonCheckAnswer(){
   if(!correct){
     const m = progress.mistakes[sentence.id] || { count:0 };
     progress.mistakes[sentence.id] = { count:m.count+1, lastWrong: todayStr(), yourAnswer: lessonState.answer };
+  } else if(lessonState.mode === "mistakes"){
+    // "Zayıf Noktaları Çalış" modunda doğru cevap = tamamlandı sayılır,
+    // cümle listeden tamamen kalkar. Bu, sadece bir sonraki tekrarı
+    // ertelemekten farklı: kullanıcı gerçekten "bitirdim" hissi alır.
+    delete progress.mistakes[sentence.id];
+    lessonState.mistakesResolvedCount = (lessonState.mistakesResolvedCount || 0) + 1;
   }
-  // Normal ("new") modda: recall adımına kadar geldiyse cümleyi öğrenilmiş
-  // sayıp tekrar kuyruğuna ekliyoruz. Doğru cevap aralığı 1 güne açar,
-  // yanlış cevap aynı gün (0) kademesinde tutar.
-  // "review" modda (tamamlanmış bir aşamayı yeniden çalışma) ise ilerlemeye
-  // ve spaced-repetition takvimine HİÇ dokunmuyoruz — bu sadece serbest
-  // pratik, mevcut tekrar programını bozmamalı. Yanlış cevaplar yine de
-  // yukarıda "mistakes" listesine eklendi, bu faydalı bir yan etki.
-  if(lessonState.mode !== "review"){
+  // Sadece normal ("new") modda: recall adımına kadar geldiyse cümleyi
+  // öğrenilmiş sayıp tekrar kuyruğuna ekliyoruz. Doğru cevap aralığı
+  // 1 güne açar, yanlış cevap aynı gün (0) kademesinde tutar.
+  // "review" (tamamlanmış aşamayı tekrar çalışma) ve "mistakes" (zayıf
+  // noktaları çalışma) modlarında ise ilerlemeye ve spaced-repetition
+  // takvimine HİÇ dokunmuyoruz — bu ikisi de serbest pratik, mevcut
+  // tekrar programını bozmamalı.
+  if(lessonState.mode === "new"){
     lessonMarkLearned(sentence.id, correct);
   }
   saveProgress();
@@ -1094,8 +1130,10 @@ function lessonReveal(){
   const sentence = findSentence(lessonState.ids[lessonState.idx]);
   // Cevap gösterildiyse kullanıcı bilmiyor demektir; yanlış cevap gibi ele
   // alıp aynı gün (0) kademesinde tutuyoruz ki cümle hemen tekrar karşısına
-  // çıksın. Review modunda ise (yukarıdaki gerekçeyle) hiç dokunmuyoruz.
-  if(lessonState.mode !== "review"){
+  // çıksın. Review/mistakes modlarında ise (yukarıdaki gerekçeyle) hiç
+  // dokunmuyoruz. Not: mistakes modunda cevap gösterildiyse cümle listeden
+  // SİLİNMEZ (kullanıcı gerçekten bilmiyordu, tamamlanmış sayılamaz).
+  if(lessonState.mode === "new"){
     lessonMarkLearned(sentence.id, false);
   }
   saveProgress();
@@ -1352,7 +1390,8 @@ function renderMistakes(){
   el.innerHTML = `
     <div class="panel">
       <h2 class="panel-title">Zayıf Noktalar Defteri</h2>
-      <p class="panel-text">En çok hata yapılan cümleler üstte. Bunlar tekrar sırasında daha sık karşına çıkar.</p>
+      <p class="panel-text">En çok hata yapılan cümleler üstte. Bir cümleyi burada doğru cevaplarsan listeden tamamen çıkar.</p>
+      <button class="btn-primary" style="margin-bottom:18px" onclick="startMistakesReview()">Zayıf Noktaları Çalış (${entries.length})</button>
       <div class="mistake-list">${listHtml}</div>
     </div>`;
 }
