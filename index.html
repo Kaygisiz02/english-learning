@@ -100,6 +100,7 @@ body{
 .stat-card-sub{font-size:11.5px; color:var(--muted); margin-top:2px;}
 
 .stage-row{display:flex; flex-direction:column; gap:8px;}
+.build-version-tag{margin-top:18px; font-size:10.5px; color:var(--line); text-align:center;}
 .stage-pill{display:flex; align-items:center; gap:12px; background:#fff; border:1px solid var(--line); border-radius:4px; padding:10px 14px;}
 .stage-pill.active{border-color:var(--ink-red); background:#FBF3EC;}
 .stage-pill-num{width:26px; height:26px; border-radius:50%; background:var(--ink-navy); color:#fff; font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0;}
@@ -112,6 +113,12 @@ body{
 .lesson-head{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px;}
 .lesson-breadcrumb{font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px;}
 .lesson-counter{font-size:13px; font-weight:700; color:var(--ink-red);}
+.lesson-exit-row{margin-bottom:8px;}
+.lesson-exit-link{
+  background:none; border:none; padding:0; font-family:Georgia,serif; font-size:12.5px;
+  color:var(--muted); cursor:pointer; text-decoration:underline; text-underline-offset:2px;
+}
+.lesson-exit-link:hover{color:var(--ink-navy);}
 
 .teach-card{border:1px solid var(--line); border-radius:4px; padding:22px 20px; background:#FEFCF6;}
 .card-label{font-size:10.5px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.8px; display:block; margin-bottom:4px;}
@@ -151,6 +158,36 @@ body{
 .pattern-row:last-child{border-bottom:none;}
 .pattern-en{font-weight:600; color:var(--text);}
 .pattern-tr{color:var(--muted); flex-shrink:0;}
+
+/* ---- Recognize fazı: çoktan seçmeli tanıma ---- */
+.choice-list{display:flex; flex-direction:column; gap:8px; margin:16px 0;}
+.choice-btn{
+  text-align:left; font-family:Georgia,serif; font-size:14.5px; color:var(--text);
+  background:#fff; border:2px solid var(--line); border-radius:4px; padding:12px 14px;
+  cursor:pointer; transition:border-color .12s ease, background .12s ease;
+}
+.choice-btn:hover:not(:disabled){border-color:var(--ink-navy); background:#FBF8F0;}
+.choice-btn:disabled{cursor:default;}
+.choice-correct{border-color:var(--good) !important; background:var(--good-bg) !important; font-weight:700;}
+.choice-wrong{border-color:var(--ink-red) !important; background:var(--bad-bg) !important;}
+
+/* ---- Build fazı: kelime dizme (tap the tiles) ---- */
+.build-answer-row{
+  min-height:52px; display:flex; flex-wrap:wrap; align-items:center; gap:8px;
+  padding:12px 14px; margin-bottom:16px; background:#F8F4E9;
+  border:2px dashed var(--line); border-radius:4px;
+}
+.build-placeholder{font-size:13px; color:var(--muted); font-style:italic;}
+.build-bank{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:18px;}
+.tile-btn{
+  font-family:Georgia,serif; font-size:14.5px; font-weight:600; color:var(--ink-navy);
+  background:#fff; border:2px solid var(--ink-navy); border-radius:4px; padding:8px 14px;
+  cursor:pointer; transition:transform .1s ease;
+}
+.tile-btn:hover:not(:disabled){background:#EDE4D0;}
+.tile-btn:active:not(:disabled){transform:scale(0.95);}
+.tile-btn:disabled{opacity:.6; cursor:default;}
+.tile-used{background:var(--ink-navy); color:#fff;}
 
 .recall-hint{font-size:12.5px; color:var(--muted); margin-bottom:12px; line-height:1.5;}
 .text-input{
@@ -326,6 +363,18 @@ function jsStr(str){
 const speechSupported = ("speechSynthesis" in window) && ("SpeechSynthesisUtterance" in window);
 let cachedEnglishVoice = null;
 let voicesReady = false;
+// Otomatik (gecikmeli) ses çağrılarını (teach fazı, recall/practice feedback'i) takip eder.
+// Kullanıcı bir sonraki karta/faza çok hızlı geçerse, önceki fazdan kalan
+// bekleyen otomatik ses çağrısı iptal edilir; yoksa yanlış anda, yanlış
+// cümleyi seslendirip kafa karıştırabilirdi (bkz. pendingAutoSpeakTimer kullanımları).
+let pendingAutoSpeakTimer = null;
+function scheduleAutoSpeak(text, btnElGetter, delay){
+  clearTimeout(pendingAutoSpeakTimer);
+  pendingAutoSpeakTimer = setTimeout(() => {
+    const btnEl = typeof btnElGetter === "function" ? btnElGetter() : btnElGetter;
+    speak(text, btnEl);
+  }, delay);
+}
 
 function primeVoices(){
   if(!speechSupported) return;
@@ -491,7 +540,7 @@ function importProgress(event){
    YÖNLENDİRME (ROUTING)
    ============================================================ */
 let currentView = "home";
-let lessonState = null;   // { ids, idx, phase, feedback }
+let lessonState = null;   // { ids, idx, phase, feedback } — phase sırası: teach -> recognize -> build -> recall -> (done)
 let practiceState = null; // { queue, total, sessionStats, feedback }
 let browseState = { stageFilter: 0, query: "" };
 
@@ -617,7 +666,8 @@ function renderHome(){
     `;
   });
 
-  html += `</div>`;
+  html += `</div>
+    <div class="build-version-tag">Sürüm: 2026-08-27 · Ders/Pratik ekranlarında "Ana Sayfaya Dön" linki eklendi</div>`;
   document.getElementById("view-home").innerHTML = html;
 }
 
@@ -625,11 +675,12 @@ function renderHome(){
    DERS EKRANI (Yeni cümle öğretimi)
    ============================================================ */
 function initLesson(){
+  clearTimeout(pendingAutoSpeakTimer); // başka bir ekrandan (örn. Practice) kalan bekleyen ses varsa iptal
   const startId = getNextNewId();
   const dailyCount = (progress.settings && progress.settings.dailyNewCount) || 8;
   const ids = [];
   for(let i=startId; i<startId+dailyCount && i<=600; i++) ids.push(i);
-  lessonState = { ids, idx:0, phase:"teach", answer:"", feedback:null };
+  lessonState = { ids, idx:0, phase:"teach", answer:"", feedback:null, recognizeOptions:null, recognizeSelected:null, buildTiles:null, buildAnswer:[], buildCorrectOrder:null, buildFeedback:null };
   renderLesson();
 }
 
@@ -686,6 +737,7 @@ function renderLesson(){
       patternHtml = `<div class="pattern-box"><div class="pattern-title">Aynı kalıptan yeni cümleler türet</div>${rows}</div>`;
     }
     el.innerHTML = `
+      <div class="lesson-exit-row"><button class="lesson-exit-link" onclick="setView('home')">← Ana Sayfaya Dön</button></div>
       <div class="lesson-head">
         <div class="lesson-breadcrumb">Aşama ${stageIdx+1} · ${escapeHtml(stage.name)}</div>
         <div class="lesson-counter">${idx+1} / ${ids.length}</div>
@@ -694,7 +746,7 @@ function renderLesson(){
         <span class="card-label">English</span>
         <div class="card-en-row">
           <div class="card-en">${escapeHtml(sentence.en)}</div>
-          <button class="speak-btn" onclick="speakBtn(${jsStr(sentence.en)}, this)" title="Sesli dinle" aria-label="Sesli dinle">🔊</button>
+          <button class="speak-btn" id="teach-main-speak-btn" onclick="speakBtn(${jsStr(sentence.en)}, this)" title="Sesli dinle" aria-label="Sesli dinle">🔊</button>
         </div>
         <div class="card-divider"></div>
         <div class="card-field"><span class="card-label">Türkçesi</span><div class="card-tr">${escapeHtml(sentence.tr)}</div></div>
@@ -702,7 +754,112 @@ function renderLesson(){
         <div class="card-field"><span class="card-label">Kelime kelime</span><div class="word-list">${wordsHtml}</div></div>
         <div class="card-field"><span class="card-label">Doğal kullanım</span><div class="card-usage">${escapeHtml(sentence.usage)}</div></div>
         ${patternHtml}
-        <button class="btn-primary" onclick="lessonMarkLearned(${sentence.id})">Öğrendim, Şimdi Test Et</button>
+        <button class="btn-primary" onclick="lessonGoToRecognize()">Öğrendim, Devam Et</button>
+      </div>`;
+    // Kart açılır açılmaz cümleyi otomatik seslendir (öğrenciler duyarak öğrenir;
+    // muadil uygulamalarda kart gösterimiyle ses birlikte gelir, elle tıklamaya gerek kalmaz).
+    scheduleAutoSpeak(sentence.en, () => document.getElementById('teach-main-speak-btn'), 150);
+    return;
+  }
+
+  if(phase === "recognize"){
+    // Isınma turu: kullanıcı henüz yazmaya zorlanmadan, doğru Türkçe anlamı
+    // çoktan seçmeli olarak tanısın. Duolingo/Memrise'deki "mark the correct
+    // meaning" adımının karşılığı — tam üretimden önceki düşük çabalı adım.
+    if(!lessonState.recognizeOptions){
+      lessonState.recognizeOptions = buildRecognizeOptions(sentence);
+      lessonState.recognizeSelected = null;
+    }
+    const opts = lessonState.recognizeOptions;
+    const selected = lessonState.recognizeSelected;
+
+    let optsHtml = "";
+    opts.forEach((opt, i) => {
+      let cls = "choice-btn";
+      if(selected !== null){
+        if(opt.isCorrect) cls += " choice-correct";
+        else if(i === selected) cls += " choice-wrong";
+      }
+      optsHtml += `<button class="${cls}" ${selected!==null?"disabled":""} onclick="lessonCheckRecognize(${i})">${escapeHtml(opt.text)}</button>`;
+    });
+
+    el.innerHTML = `
+      <div class="lesson-exit-row"><button class="lesson-exit-link" onclick="setView('home')">← Ana Sayfaya Dön</button></div>
+      <div class="lesson-head">
+        <div class="lesson-breadcrumb">Aşama ${stageIdx+1} · ${escapeHtml(stage.name)} · Tanıma</div>
+        <div class="lesson-counter">${idx+1} / ${ids.length}</div>
+      </div>
+      <div class="teach-card">
+        <span class="card-label">Bu cümle Türkçe ne demek?</span>
+        <div class="card-en-row">
+          <div class="card-en" style="font-size:20px">${escapeHtml(sentence.en)}</div>
+          <button class="speak-btn" onclick="speakBtn(${jsStr(sentence.en)}, this)" title="Sesli dinle" aria-label="Sesli dinle">🔊</button>
+        </div>
+        <div class="choice-list">${optsHtml}</div>
+        ${selected !== null ? `<button class="btn-primary" onclick="lessonGoToBuild()">Devam Et</button>` : ""}
+      </div>`;
+    return;
+  }
+
+  if(phase === "build"){
+    // Orta adım: cümleyi karışık kelime parçalarından doğru sıraya dizmek.
+    // Boş bir kutuya yazmadan önce cümle yapısını "inşa ederek" içselleştirme —
+    // Duolingo'nun "arrange all the words" egzersiziyle aynı mantık.
+    if(!lessonState.buildTiles){
+      const built = buildWordTiles(sentence.en);
+      lessonState.buildTiles = built.tiles;       // karışık sıradaki kelime parçaları [{id,text,used}]
+      lessonState.buildAnswer = [];                 // kullanıcının seçtiği sıradaki tile id'leri
+      lessonState.buildCorrectOrder = built.correctOrder;
+      lessonState.buildFeedback = null;
+    }
+    const tiles = lessonState.buildTiles;
+    const answer = lessonState.buildAnswer;
+    const fb = lessonState.buildFeedback;
+
+    const answerRowHtml = answer.length === 0
+      ? `<span class="build-placeholder">Kelimelere dokunarak cümleyi buraya sırayla diz…</span>`
+      : answer.map(tid => {
+          const t = tiles.find(x => x.id === tid);
+          return `<button class="tile-btn tile-used" onclick="lessonRemoveTile(${tid})" ${fb?"disabled":""}>${escapeHtml(t.text)}</button>`;
+        }).join(" ");
+
+    const bankHtml = tiles.filter(t => !answer.includes(t.id)).map(t =>
+      `<button class="tile-btn" onclick="lessonAddTile(${t.id})" ${fb?"disabled":""}>${escapeHtml(t.text)}</button>`
+    ).join(" ");
+
+    let feedbackHtml = "";
+    if(fb){
+      const cls = fb === "correct" ? "feedback-good" : "feedback-bad";
+      const label = fb === "correct" ? "Doğru sırada! 👍" : "Doğru sıralama bu — bir dahaki sefere dikkat et.";
+      feedbackHtml = `
+        <div class="feedback-box ${cls}">
+          <div class="feedback-answer-row">
+            <div class="feedback-answer">${escapeHtml(sentence.en)}</div>
+            <button class="speak-btn" onclick="speakBtn(${jsStr(sentence.en)}, this)" title="Sesli dinle" aria-label="Sesli dinle">🔊</button>
+          </div>
+          <div class="feedback-label">${label}</div>
+          <button class="btn-primary" onclick="lessonGoToRecall()">Şimdi Kendin Yaz</button>
+        </div>`;
+    }
+
+    el.innerHTML = `
+      <div class="lesson-exit-row"><button class="lesson-exit-link" onclick="setView('home')">← Ana Sayfaya Dön</button></div>
+      <div class="lesson-head">
+        <div class="lesson-breadcrumb">Aşama ${stageIdx+1} · ${escapeHtml(stage.name)} · Cümle Dizme</div>
+        <div class="lesson-counter">${idx+1} / ${ids.length}</div>
+      </div>
+      <div class="teach-card">
+        <span class="card-label">Türkçesi</span>
+        <div class="card-tr" style="margin-bottom:14px">${escapeHtml(sentence.tr)}</div>
+        <p class="recall-hint">Kelimeleri doğru sırada seçerek İngilizce cümleyi oluştur.</p>
+        <div class="build-answer-row">${answerRowHtml}</div>
+        <div class="build-bank">${bankHtml}</div>
+        ${!fb ? `
+          <div class="hero-buttons">
+            <button class="btn-primary" onclick="lessonCheckBuild()" ${answer.length===0?"disabled":""}>Kontrol Et</button>
+            <button class="btn-ghost" onclick="lessonResetBuild()">Baştan Başla</button>
+          </div>` : ""}
+        ${feedbackHtml}
       </div>`;
     return;
   }
@@ -718,13 +875,14 @@ function renderLesson(){
         <div class="feedback-box ${cls}">
           <div class="feedback-answer-row">
             <div class="feedback-answer">${escapeHtml(sentence.en)}</div>
-            <button class="speak-btn" onclick="speakBtn(${jsStr(sentence.en)}, this)" title="Sesli dinle" aria-label="Sesli dinle">🔊</button>
+            <button class="speak-btn" id="recall-feedback-speak-btn" onclick="speakBtn(${jsStr(sentence.en)}, this)" title="Sesli dinle" aria-label="Sesli dinle">🔊</button>
           </div>
           <div class="feedback-label">${label}</div>
           <button class="btn-primary" onclick="lessonNextCard()">${nextLabel}</button>
         </div>`;
     }
     el.innerHTML = `
+      <div class="lesson-exit-row"><button class="lesson-exit-link" onclick="setView('home')">← Ana Sayfaya Dön</button></div>
       <div class="lesson-head">
         <div class="lesson-breadcrumb">Aşama ${stageIdx+1} · ${escapeHtml(stage.name)}</div>
         <div class="lesson-counter">${idx+1} / ${ids.length}</div>
@@ -749,6 +907,10 @@ function renderLesson(){
         if(inp) inp.focus();
         lessonSyncCheckBtn();
       },0);
+    } else {
+      // Doğru cevap gösterildiğinde (doğru/yanlış/reveal fark etmeksizin) telaffuzu
+      // otomatik duyur — kullanıcı yazdığı ile doğru okunuşu hemen karşılaştırabilsin.
+      scheduleAutoSpeak(sentence.en, () => document.getElementById('recall-feedback-speak-btn'), 150);
     }
     return;
   }
@@ -759,6 +921,104 @@ function lessonSyncCheckBtn(){
   if(btn) btn.disabled = !lessonState.answer.trim();
 }
 
+/* ---- Faz geçişleri ---- */
+function lessonGoToRecognize(){
+  clearTimeout(pendingAutoSpeakTimer); // önceki fazdan (teach) kalan bekleyen otomatik ses varsa iptal
+  lessonState.phase = "recognize";
+  lessonState.recognizeOptions = null; // renderLesson yeniden üretsin
+  lessonState.recognizeSelected = null;
+  renderLesson();
+}
+function lessonGoToBuild(){
+  clearTimeout(pendingAutoSpeakTimer);
+  lessonState.phase = "build";
+  lessonState.buildTiles = null; // renderLesson yeniden üretsin
+  renderLesson();
+}
+function lessonGoToRecall(){
+  clearTimeout(pendingAutoSpeakTimer);
+  lessonState.phase = "recall";
+  lessonState.answer = "";
+  lessonState.feedback = null;
+  renderLesson();
+}
+
+/* ---- RECOGNIZE (çoktan seçmeli tanıma) ---- */
+// Hedef cümlenin doğru Türkçesini, aynı aşamadan alınmış 3 yanlış seçenekle
+// karıştırır. Yanlışlar aynı stage'den seçilir ki zorluk seviyesi tutarlı olsun
+// (çok farklı bir aşamadan gelen çeviri bariz şekilde elenebilir olurdu).
+function buildRecognizeOptions(sentence){
+  const stageIdx = stageOf(sentence.id);
+  const stage = STAGES[stageIdx];
+  const pool = SENTENCES.filter(s => s.id !== sentence.id && s.id >= stage.from && s.id <= stage.to && s.tr !== sentence.tr);
+  const wrongs = [];
+  const poolCopy = pool.slice();
+  while(wrongs.length < 3 && poolCopy.length > 0){
+    const i = Math.floor(Math.random() * poolCopy.length);
+    wrongs.push(poolCopy.splice(i,1)[0]);
+  }
+  const options = wrongs.map(w => ({ text: w.tr, isCorrect: false }));
+  options.push({ text: sentence.tr, isCorrect: true });
+  // Fisher-Yates karıştırma
+  for(let i = options.length - 1; i > 0; i--){
+    const j = Math.floor(Math.random() * (i+1));
+    [options[i], options[j]] = [options[j], options[i]];
+  }
+  return options;
+}
+function lessonCheckRecognize(i){
+  if(lessonState.recognizeSelected !== null) return; // zaten cevaplandı
+  lessonState.recognizeSelected = i;
+  renderLesson();
+}
+
+/* ---- BUILD (kelime dizme) ---- */
+// Cümleyi kelimelere ayırıp karıştırır. Noktalama işaretlerini ayrı tile
+// yapmadan kelimenin sonuna yapıştırıyoruz (örn. "water." tek parça) —
+// yoksa nokta/soru işareti tek başına anlamsız bir parça olurdu.
+function buildWordTiles(sentenceEn){
+  const words = sentenceEn.split(" ").filter(w => w.length > 0);
+  const tiles = words.map((w, i) => ({ id: i, text: w }));
+  const correctOrder = tiles.map(t => t.id);
+  // Karışık sırada göster (en az bir kelime yanlış konumdaysa yeterli;
+  // tek kelimelik cümlelerde karıştırmaya gerek yok)
+  const shuffled = tiles.slice();
+  if(shuffled.length > 1){
+    let attempts = 0;
+    do{
+      for(let i = shuffled.length - 1; i > 0; i--){
+        const j = Math.floor(Math.random() * (i+1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      attempts++;
+    } while(shuffled.every((t,i) => t.id === correctOrder[i]) && attempts < 10);
+  }
+  return { tiles: shuffled, correctOrder };
+}
+function lessonAddTile(tileId){
+  if(lessonState.buildFeedback) return;
+  lessonState.buildAnswer.push(tileId);
+  renderLesson();
+}
+function lessonRemoveTile(tileId){
+  if(lessonState.buildFeedback) return;
+  const idx = lessonState.buildAnswer.lastIndexOf(tileId);
+  if(idx !== -1) lessonState.buildAnswer.splice(idx, 1);
+  renderLesson();
+}
+function lessonResetBuild(){
+  if(lessonState.buildFeedback) return;
+  lessonState.buildAnswer = [];
+  renderLesson();
+}
+function lessonCheckBuild(){
+  const isCorrect = lessonState.buildAnswer.length === lessonState.buildCorrectOrder.length &&
+    lessonState.buildAnswer.every((id, i) => id === lessonState.buildCorrectOrder[i]);
+  lessonState.buildFeedback = isCorrect ? "correct" : "wrong";
+  renderLesson();
+}
+
+/* ---- RECALL (serbest yazma) — mevcut mantık, artık learned burada işaretleniyor ---- */
 function lessonMarkLearned(id){
   const today = todayStr();
   progress.learned[id] = {
@@ -768,10 +1028,6 @@ function lessonMarkLearned(id){
   progress.dailyLog[today].newCount += 1;
   saveProgress();
   updateTopbar();
-  lessonState.phase = "recall";
-  lessonState.answer = "";
-  lessonState.feedback = null;
-  renderLesson();
 }
 
 function lessonCheckAnswer(){
@@ -781,17 +1037,29 @@ function lessonCheckAnswer(){
   if(!correct){
     const m = progress.mistakes[sentence.id] || { count:0 };
     progress.mistakes[sentence.id] = { count:m.count+1, lastWrong: todayStr(), yourAnswer: lessonState.answer };
-    saveProgress();
   }
+  // Recall adımına kadar geldiyse (tanıma + dizme aşamalarını geçtiyse)
+  // cümleyi öğrenilmiş sayıp tekrar kuyruğuna ekliyoruz — doğru/yanlış
+  // fark etmeksizin, çünkü aralıklı tekrar sistemi zaten yanlış cevaplarda
+  // daha sık karşısına çıkaracak (scheduleNext mantığı).
+  if(!progress.learned[sentence.id]) lessonMarkLearned(sentence.id);
+  saveProgress();
   renderLesson();
 }
 function lessonReveal(){
   lessonState.feedback = "revealed";
+  const sentence = findSentence(lessonState.ids[lessonState.idx]);
+  if(!progress.learned[sentence.id]) lessonMarkLearned(sentence.id);
+  saveProgress();
   renderLesson();
 }
 function lessonNextCard(){
+  clearTimeout(pendingAutoSpeakTimer); // önceki karttan (recall feedback) kalan bekleyen ses varsa iptal
   lessonState.answer = "";
   lessonState.feedback = null;
+  lessonState.recognizeOptions = null;
+  lessonState.recognizeSelected = null;
+  lessonState.buildTiles = null;
   if(lessonState.idx+1 < lessonState.ids.length){
     lessonState.idx += 1;
     lessonState.phase = "teach";
@@ -805,6 +1073,7 @@ function lessonNextCard(){
    TEKRAR PRATİĞİ (AKTİF HATIRLAMA)
    ============================================================ */
 function initPractice(){
+  clearTimeout(pendingAutoSpeakTimer); // başka bir ekrandan (örn. Ders) kalan bekleyen ses varsa iptal
   const dueIds = getDueReviews();
   practiceState = { queue: dueIds.slice(), total: dueIds.length, correct:0, wrong:0, answer:"", feedback:null };
   renderPractice();
@@ -849,7 +1118,7 @@ function renderPractice(){
       <div class="feedback-box ${cls}">
         <div class="feedback-answer-row">
           <div class="feedback-answer">${escapeHtml(sentence.en)}</div>
-          <button class="speak-btn" onclick="speakBtn(${jsStr(sentence.en)}, this)" title="Sesli dinle" aria-label="Sesli dinle">🔊</button>
+          <button class="speak-btn" id="practice-feedback-speak-btn" onclick="speakBtn(${jsStr(sentence.en)}, this)" title="Sesli dinle" aria-label="Sesli dinle">🔊</button>
         </div>
         <div class="feedback-label">${label}</div>
         <button class="btn-primary" onclick="practiceNextItem()">Sıradaki</button>
@@ -857,6 +1126,7 @@ function renderPractice(){
   }
 
   el.innerHTML = `
+    <div class="lesson-exit-row"><button class="lesson-exit-link" onclick="setView('home')">← Ana Sayfaya Dön</button></div>
     <div class="lesson-head">
       <div class="lesson-breadcrumb">Tekrar Pratiği</div>
       <div class="lesson-counter">${practiceState.total - practiceState.queue.length + 1} / ${practiceState.total}</div>
@@ -881,6 +1151,10 @@ function renderPractice(){
       if(inp) inp.focus();
       practiceSyncCheckBtn();
     },0);
+  } else {
+    // Ders akışındaki recall fazıyla tutarlı: doğru cevap gösterildiğinde
+    // telaffuzu otomatik duyur.
+    scheduleAutoSpeak(sentence.en, () => document.getElementById('practice-feedback-speak-btn'), 150);
   }
 }
 
@@ -933,6 +1207,7 @@ function practiceReveal(){
   renderPractice();
 }
 function practiceNextItem(){
+  clearTimeout(pendingAutoSpeakTimer); // önceki cümlenin feedback sesi kalmışsa iptal
   practiceState.answer = "";
   practiceState.feedback = null;
   practiceState.queue.shift();
