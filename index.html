@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Baba-Oğul İngilizce Defteri — 600 Cümle</title>
+<title>Anne ile İngilizce Öğreniyorum — 600 Cümle</title>
 <style>
 :root{
   --paper:#F1EADB;
@@ -289,7 +289,7 @@ body{
       <div id="brand" onclick="goHome()">
         <div id="brand-mark">600</div>
         <div>
-          <div id="brand-title">Baba-Oğul İngilizce Defteri</div>
+          <div id="brand-title">Anne ile İngilizce Öğreniyorum</div>
           <div id="brand-sub"><span id="brand-count">0</span>/600 cümle · %<span id="brand-pct">0</span></div>
         </div>
       </div>
@@ -338,10 +338,67 @@ function stageOf(id){ return STAGES.findIndex(s => id >= s.from && id <= s.to); 
 // başlangıçta bir kez kurup O(1) erişim sağlıyoruz.
 const SENTENCE_BY_ID = Object.fromEntries(SENTENCES.map(s => [s.id, s]));
 function findSentence(id){ return SENTENCE_BY_ID[id]; }
+// Veri setindeki 600 cümlenin tamamında geçen kısaltmalar (i'm, don't, what's...)
+// ile bunların açık halleri (I am, do not, what is...) dilbilgisi olarak
+// eşdeğerdir. Kullanıcı hangisini yazarsa yazsın doğru sayılmalı, bu yüzden
+// normalize() karşılaştırma öncesi kısaltmaları açık hale çeviriyor.
+// Not: "he's"/"she's"/"it's"/"that's"/"there's"/"here's" veri setinde HER
+// zaman "is" anlamında kullanılmış (hiçbiri "has" değil), "you'd" ise tek
+// kullanımında "had" anlamında ("You'd better hurry") — bu eşlemeler veri
+// setindeki gerçek kullanım taranarak belirlendi, genel bir varsayım değil.
+// "o'clock" bilinçli olarak dahil edilmedi: bu bir zaman birimi ifadesidir,
+// "of the clock" şeklinde açılması doğal değildir.
+const CONTRACTIONS = {
+  "i'm":"i am", "you're":"you are", "we're":"we are",
+  "it's":"it is", "that's":"that is", "there's":"there is",
+  "what's":"what is", "here's":"here is", "how's":"how is",
+  "she's":"she is", "he's":"he is", "nothing's":"nothing is", "sky's":"sky is",
+  "i'll":"i will", "we'll":"we will", "you'll":"you will",
+  "i've":"i have", "you've":"you have",
+  "i'd":"i would", "you'd":"you had",
+  "don't":"do not", "doesn't":"does not", "didn't":"did not",
+  "can't":"cannot", "couldn't":"could not", "won't":"will not",
+  "shouldn't":"should not", "isn't":"is not", "haven't":"have not",
+  "let's":"let us",
+};
+// Bazı kısaltmaların apostrofsuz hali ("were", "its", "well", "ill" gibi)
+// İngilizcede zaten geçerli, sık kullanılan başka bir kelimedir. Bu
+// kısaltmalarda apostrofu ZORUNLU tutuyoruz — yoksa kullanıcı gerçekten o
+// kelimeyi yazdığında (örn. "Where were we?" cümlesindeki "were") bunu
+// yanlışlıkla bir kısaltma gibi açıp cümleyi bozarız. Diğer kısaltmalarda
+// ("dont", "whats", "im" gibi) apostrofsuz hali anlamlı bir kelime
+// olmadığı için apostrofu isteğe bağlı bırakmak güvenlidir ve kullanıcının
+// apostrof unutmasını tolere eder.
+// Not: "cant" (ikiyüzlü/dini jargon), "wont" (alışkanlık, arkaik), "id"
+// (psikoloji terimi) teknik olarak gerçek kelimelerdir ama bu uygulamanın
+// bağlamında (günlük konuşma cümleleri yazan bir dil öğrencisi) fiilen hiç
+// karşılaşılmaz; bunları riskli saymak, gerçek faydası olan apostrof
+// toleransını gereksiz yere kısıtlardı. "were", "its", "well", "ill" ise
+// tartışmasız yaygın kelimelerdir ve risk listesinde kalmalıdır. "let's"
+// de listede kalıyor çünkü "lets" (izin verir anlamında, örn. "the app
+// lets you...") günlük kullanımda gerçekten karşılaşılabilir.
+const CONTRACTIONS_REQUIRE_APOSTROPHE = new Set([
+  "we're", "it's", "i'll", "we'll", "let's",
+]);
+function expandContractions(str){
+  let result = str;
+  // Apostrof karakteri düz (') veya eğik (' ’) olabilir — özellikle mobil
+  // klavyeler ve otomatik düzeltme genelde eğik apostrof üretir. Regex'te
+  // ikisini de kapsayan bir karakter sınıfı kullanıyoruz, yoksa "I'm"
+  // (eğik apostroflu) tanınmadan geçip yanlış sonuca yol açar.
+  const APOSTROPHE_CLASS = "['\u2018\u2019]";
+  for(const [contraction, expansion] of Object.entries(CONTRACTIONS)){
+    const mustHaveApostrophe = CONTRACTIONS_REQUIRE_APOSTROPHE.has(contraction);
+    const apostropheGroup = mustHaveApostrophe ? APOSTROPHE_CLASS : APOSTROPHE_CLASS+"?";
+    const pattern = contraction.replace(/'/g, apostropheGroup);
+    result = result.replace(new RegExp("\\b"+pattern+"\\b","gi"), expansion);
+  }
+  return result;
+}
 function normalize(str){
-  return str.toLowerCase().trim()
+  return expandContractions(str.toLowerCase().trim())
     .replace(/[.!?,]/g,"")
-    .replace(/['’]/g,"") // apostrof farkını yok say: I'm vs Im, o'clock vs oclock
+    .replace(/['’]/g,"") // kalan apostroflar (o'clock gibi) için farkı yok say
     .replace(/\s+/g," ");
 }
 function escapeHtml(str){
@@ -676,7 +733,7 @@ function renderHome(){
   });
 
   html += `</div>
-    <div class="build-version-tag">Sürüm: 2026-08-27 · Zayıf Noktalar artık çalışılıp tamamlanabiliyor</div>`;
+    <div class="build-version-tag">Sürüm: 2026-08-27 · Kısaltmalar (I'm/I am, What's/What is...) artık eşdeğer sayılıyor</div>`;
   document.getElementById("view-home").innerHTML = html;
 }
 
