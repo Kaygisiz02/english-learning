@@ -146,6 +146,18 @@ body{
 .card-en-row{display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
 .pattern-row-with-speak{display:flex; justify-content:space-between; align-items:center; gap:10px;}
 .pattern-en-wrap{display:flex; align-items:center; gap:8px; flex:1; min-width:0;}
+
+.answer-input-row{display:flex; align-items:center; gap:8px; margin-bottom:12px;}
+.answer-input-row .text-input{flex:1; margin-bottom:0;}
+.mic-btn{
+  display:inline-flex; align-items:center; justify-content:center;
+  width:44px; height:44px; border-radius:50%; flex-shrink:0;
+  background:#fff; border:1.5px solid var(--ink-navy); color:var(--ink-navy);
+  font-size:18px; cursor:pointer; transition:background .15s ease, transform .1s ease;
+}
+.mic-btn:hover{background:#EDE4D0;}
+.mic-btn:active{transform:scale(0.92);}
+.mic-btn.mic-listening{background:var(--ink-red); border-color:var(--ink-red); color:#fff; animation:pulse 0.6s ease-in-out infinite alternate;}
 .browse-en-row{display:flex; align-items:center; gap:8px;}
 .feedback-answer-row{display:flex; align-items:center; gap:10px;}
 .card-divider{height:1px; background:var(--line); margin:14px 0;}
@@ -486,6 +498,55 @@ function speakBtn(text, btnEl){
   speak(text, btnEl || null);
 }
 
+/* ============================================================
+   KONUŞMA TANIMA (Web Speech API — SpeechRecognition, konuşmadan metne)
+   ============================================================ */
+// Chrome/Edge (Chromium) ve Safari'de webkitSpeechRecognition prefix'iyle
+// mevcut; Firefox'ta yok. Bulunamıyorsa mikrofon butonu hiç gösterilmez,
+// kullanıcı sorunsuz şekilde klavyeyle yazmaya devam eder.
+const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+const speechRecognitionSupported = !!SpeechRecognitionAPI;
+let activeRecognition = null; // aynı anda birden fazla dinleme başlamasın diye
+
+// onResult(transcript): tanınan metni alacak geri çağırım.
+// onStateChange(state): "listening" | "idle" | "error" — buton görselini güncellemek için.
+function startVoiceInput(onResult, onStateChange){
+  if(!speechRecognitionSupported){
+    if(onStateChange) onStateChange("error");
+    return;
+  }
+  if(activeRecognition){
+    // zaten dinliyorsa tekrar tıklanmışsa durdur (aç/kapa davranışı)
+    activeRecognition.stop();
+    return;
+  }
+  const recognition = new SpeechRecognitionAPI();
+  recognition.lang = "en-US";
+  recognition.interimResults = false; // sadece kesin sonucu al, ara tahminleri gösterme
+  recognition.maxAlternatives = 1;
+
+  recognition.onstart = () => { if(onStateChange) onStateChange("listening"); };
+  recognition.onresult = (event) => {
+    const transcript = event.results[0][0].transcript;
+    if(onResult) onResult(transcript);
+  };
+  recognition.onerror = () => { if(onStateChange) onStateChange("error"); };
+  recognition.onend = () => {
+    activeRecognition = null;
+    if(onStateChange) onStateChange("idle");
+  };
+
+  activeRecognition = recognition;
+  try{
+    recognition.start();
+  }catch(e){
+    // Bazı tarayıcılarda üst üste hızlı start() çağrıları hata fırlatabilir;
+    // sessizce idle durumuna dön, kullanıcı tekrar deneyebilir.
+    activeRecognition = null;
+    if(onStateChange) onStateChange("error");
+  }
+}
+
 function defaultProgress(){
   return {
     learned: {},
@@ -541,14 +602,40 @@ function getDueReviews(){
   }
   return due.sort((a,b)=>a-b);
 }
+// SM-2 algoritması (Anki/SuperMemo'nun kullandığı, 1987'den beri kanıtlanmış
+// aralıklı tekrar yöntemi). Sabit bir merdiven yerine her cümlenin kendi
+// "ease factor"ü (kolaylık katsayısı) tutulur: sürekli doğru bilinen bir
+// cümlenin ease'i yükselir ve aralığı katlanarak açılır (1→6→15→37 gün gibi,
+// cümleye özel); sık yanlış yapılan bir cümlenin ease'i düşer ve aralığı kısa
+// kalıp sık tekrar eder. Böylece 600 cümlenin her biri kendi zorluk geçmişine
+// göre kişisel bir hızda ilerler, hepsi aynı sabit merdivende yürümez.
+const SM2_INITIAL_EASE = 2.5;
+const SM2_MIN_EASE = 1.3;
+const SM2_EASE_BONUS_CORRECT = 0.15;
+const SM2_EASE_PENALTY_WRONG = 0.2;
 function scheduleNext(rec, wasCorrect){
-  let step = rec.reviewStep || 0;
-  if(wasCorrect){ step = Math.min(step+1, REVIEW_GAPS_DAYS.length-1); }
-  else{ step = Math.max(step-2, 0); }
-  const gapDays = REVIEW_GAPS_DAYS[step];
+  let ease = rec.ease || SM2_INITIAL_EASE;
+  let interval = rec.interval || 0; // gün cinsinden mevcut aralık
+  let repetitions = rec.repetitions || 0; // art arda doğru sayısı
+
+  if(wasCorrect){
+    ease = ease + SM2_EASE_BONUS_CORRECT;
+    repetitions += 1;
+    if(repetitions === 1) interval = 1;
+    else if(repetitions === 2) interval = 6;
+    else interval = Math.round(interval * ease);
+  } else {
+    ease = Math.max(SM2_MIN_EASE, ease - SM2_EASE_PENALTY_WRONG);
+    repetitions = 0;
+    interval = 0; // yanlış bilinen cümle aynı gün (bugün) tekrar kuyruğuna düşer
+  }
+
   const next = new Date();
-  next.setDate(next.getDate()+gapDays);
-  return { reviewStep: step, nextReview: next.toISOString().slice(0,10) };
+  next.setDate(next.getDate() + interval);
+  return {
+    ease, interval, repetitions,
+    nextReview: next.toISOString().slice(0,10),
+  };
 }
 function getPatternSiblings(id){
   const s = findSentence(id);
@@ -733,7 +820,7 @@ function renderHome(){
   });
 
   html += `</div>
-    <div class="build-version-tag">Sürüm: 2026-08-27 · Kısaltmalar (I'm/I am, What's/What is...) artık eşdeğer sayılıyor</div>`;
+    <div class="build-version-tag">Sürüm: 2026-08-27 · Gerçek SM-2 tekrar algoritması ve konuşarak cevap verme (🎤) eklendi</div>`;
   document.getElementById("view-home").innerHTML = html;
 }
 
@@ -1007,9 +1094,12 @@ function renderLesson(){
         <span class="card-label">Türkçesi</span>
         <div class="card-tr" style="margin-bottom:14px">${escapeHtml(sentence.tr)}</div>
         <p class="recall-hint">İngilizcesini yazmayı dene. Emin değilsen tahmin et, olmadı "Cevabı Göster"e bas.</p>
-        <input type="text" class="text-input" id="lesson-answer-input" placeholder="İngilizcesini buraya yaz…"
-          value="${escapeHtml(lessonState.answer)}" ${fb ? "disabled" : ""}
-          oninput="lessonState.answer=this.value; lessonSyncCheckBtn()" onkeydown="if(event.key==='Enter' && !lessonState.feedback) lessonCheckAnswer()">
+        <div class="answer-input-row">
+          <input type="text" class="text-input" id="lesson-answer-input" placeholder="İngilizcesini buraya yaz…"
+            value="${escapeHtml(lessonState.answer)}" ${fb ? "disabled" : ""}
+            oninput="lessonState.answer=this.value; lessonSyncCheckBtn()" onkeydown="if(event.key==='Enter' && !lessonState.feedback) lessonCheckAnswer()">
+          ${(speechRecognitionSupported && !fb) ? `<button class="mic-btn" id="lesson-mic-btn" onclick="lessonStartMic()" title="Konuşarak cevapla" aria-label="Konuşarak cevapla">🎤</button>` : ""}
+        </div>
         ${!fb ? `
           <div class="hero-buttons">
             <button class="btn-primary" id="lesson-check-btn" onclick="lessonCheckAnswer()">Kontrol Et</button>
@@ -1035,6 +1125,23 @@ function renderLesson(){
 function lessonSyncCheckBtn(){
   const btn = document.getElementById("lesson-check-btn");
   if(btn) btn.disabled = !lessonState.answer.trim();
+}
+
+function lessonStartMic(){
+  const micBtn = document.getElementById("lesson-mic-btn");
+  startVoiceInput(
+    (transcript) => {
+      lessonState.answer = transcript;
+      const inp = document.getElementById("lesson-answer-input");
+      if(inp) inp.value = transcript;
+      lessonSyncCheckBtn();
+    },
+    (state) => {
+      if(!micBtn) return;
+      if(state === "listening") micBtn.classList.add("mic-listening");
+      else micBtn.classList.remove("mic-listening");
+    }
+  );
 }
 
 /* ---- Faz geçişleri ---- */
@@ -1141,11 +1248,11 @@ function lessonMarkLearned(id, wasCorrect){
   // Böylece bu invariant çağıran koda değil, fonksiyonun kendisine bağlı olur.
   if(progress.learned[id]) return;
   const today = todayStr();
-  // İlk öğrenmede de scheduleNext ile aynı mantığı kullanıyoruz: doğru
-  // cevaplandıysa bir sonraki kademeye (1 gün) geçiyor, yanlış/gösterildiyse
-  // aynı kademede (0 = bugün) kalıyor. Böylece Ders'teki ilk cevap da
-  // Pratik'teki tekrarlarla tutarlı bir şekilde aralığı etkiliyor.
-  const schedule = scheduleNext({ reviewStep: 0 }, !!wasCorrect);
+  // İlk öğrenmede de scheduleNext ile aynı SM-2 mantığını kullanıyoruz:
+  // doğru cevaplandıysa ilk tekrar 1 gün sonraya açılır (repetitions=1),
+  // yanlış/gösterildiyse bugün (interval=0) kalır. Böylece Ders'teki ilk
+  // cevap da Pratik'teki tekrarlarla aynı algoritmayla aralığı etkiliyor.
+  const schedule = scheduleNext({}, !!wasCorrect); // boş rec: ease/interval/repetitions varsayılan başlangıç değerlerinden başlar
   progress.learned[id] = {
     firstLearned: today, ...schedule, correctStreak: wasCorrect ? 1 : 0, timesWrong: wasCorrect ? 0 : 1
   };
@@ -1288,9 +1395,12 @@ function renderPractice(){
     <div class="teach-card">
       <span class="card-label">Türkçesi</span>
       <div class="card-tr" style="margin-bottom:14px">${escapeHtml(sentence.tr)}</div>
-      <input type="text" class="text-input" id="practice-answer-input" placeholder="İngilizcesini buraya yaz…"
-        value="${escapeHtml(practiceState.answer)}" ${fb ? "disabled" : ""}
-        oninput="practiceState.answer=this.value; practiceSyncCheckBtn()" onkeydown="if(event.key==='Enter' && !practiceState.feedback) practiceCheckAnswer()">
+      <div class="answer-input-row">
+        <input type="text" class="text-input" id="practice-answer-input" placeholder="İngilizcesini buraya yaz…"
+          value="${escapeHtml(practiceState.answer)}" ${fb ? "disabled" : ""}
+          oninput="practiceState.answer=this.value; practiceSyncCheckBtn()" onkeydown="if(event.key==='Enter' && !practiceState.feedback) practiceCheckAnswer()">
+        ${(speechRecognitionSupported && !fb) ? `<button class="mic-btn" id="practice-mic-btn" onclick="practiceStartMic()" title="Konuşarak cevapla" aria-label="Konuşarak cevapla">🎤</button>` : ""}
+      </div>
       ${!fb ? `
         <div class="hero-buttons">
           <button class="btn-primary" id="practice-check-btn" onclick="practiceCheckAnswer()">Kontrol Et</button>
@@ -1315,6 +1425,30 @@ function renderPractice(){
 function practiceSyncCheckBtn(){
   const btn = document.getElementById("practice-check-btn");
   if(btn) btn.disabled = !practiceState.answer.trim();
+}
+
+function practiceStartMic(){
+  const micBtn = document.getElementById("practice-mic-btn");
+  startVoiceInput(
+    (transcript) => {
+      // Tanınan metni doğrudan cevap kutusuna yaz; kullanıcı isterse
+      // gönderme öncesi elle düzeltebilir (STT %100 doğru olmayabilir).
+      practiceState.answer = transcript;
+      const inp = document.getElementById("practice-answer-input");
+      if(inp) inp.value = transcript;
+      practiceSyncCheckBtn();
+    },
+    (state) => {
+      if(!micBtn) return;
+      if(state === "listening") micBtn.classList.add("mic-listening");
+      else micBtn.classList.remove("mic-listening");
+      if(state === "error"){
+        // Mikrofon izni reddedildiyse ya da tanıma başarısız olduysa sessizce
+        // eski haline dön; kullanıcı klavyeyle yazmaya devam edebilir.
+        micBtn.classList.remove("mic-listening");
+      }
+    }
+  );
 }
 
 function practiceCheckAnswer(){
