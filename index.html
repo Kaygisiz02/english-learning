@@ -6,10 +6,13 @@
 <title>Anne ile İngilizce Öğreniyorum — 600 Cümle</title>
 <style>
 :root{
-  --paper:#D7FFB8;
-  --paper-line:#C8F59E;
+  --paper:#FFFFFF;
+  --paper-line:#F5F5F5;
   --ink-navy:#1F3350;
   --ink-red:#8B2E2E;
+  --duo-green:#58CC02;
+  --duo-green-deep:#58A700;
+  --duo-green-pale:#D7FFB8;
   --line:#D8CCAF;
   --text:#2A2620;
   --muted:#7A7264;
@@ -44,14 +47,14 @@ body{
 }
 #brand{display:flex; align-items:center; gap:10px; cursor:pointer;}
 #brand-mark{
-  font-weight:700; font-size:20px; color:#fff; background:var(--ink-red);
+  font-weight:700; font-size:20px; color:#fff; background:var(--duo-green-deep);
   width:40px; height:40px; border-radius:50%;
   display:flex; align-items:center; justify-content:center; flex-shrink:0; letter-spacing:-1px;
 }
 #brand-title{font-size:15px; font-weight:700; color:var(--ink-navy); line-height:1.2;}
 #brand-sub{font-size:12px; color:var(--muted); margin-top:2px;}
 #progress-track{flex:1; min-width:100px; height:6px; background:var(--line); border-radius:3px; overflow:hidden;}
-#progress-fill{height:100%; background:linear-gradient(90deg,var(--ink-red),#B0524F); transition:width .5s ease; width:0%;}
+#progress-fill{height:100%; background:linear-gradient(90deg,var(--duo-green-deep),var(--duo-green)); transition:width .5s ease; width:0%;}
 .nav-btn{
   background:transparent; border:1px solid var(--line); border-radius:4px;
   padding:7px 12px; font-size:12.5px; font-family:Georgia,serif; color:var(--text);
@@ -77,7 +80,7 @@ body{
   margin-bottom:20px; box-shadow:2px 3px 0 rgba(31,51,80,0.06); flex-wrap:wrap;
 }
 .hero-left{flex:1 1 280px;}
-.hero-eyebrow{font-size:11px; letter-spacing:1.5px; color:var(--ink-red); font-weight:700; margin-bottom:6px; text-transform:uppercase;}
+.hero-eyebrow{font-size:11px; letter-spacing:1.5px; color:var(--duo-green-deep); font-weight:700; margin-bottom:6px; text-transform:uppercase;}
 .hero-title{font-size:26px; font-weight:700; color:var(--ink-navy); margin:0 0 8px 0;}
 .hero-desc{font-size:14.5px; color:var(--text); line-height:1.6; margin-bottom:4px;}
 .hero-buttons{display:flex; gap:10px; flex-wrap:wrap; margin-top:16px;}
@@ -106,11 +109,11 @@ body{
 .stage-row{display:flex; flex-direction:column; gap:8px;}
 .build-version-tag{margin-top:18px; font-size:10.5px; color:var(--line); text-align:center;}
 .stage-pill{display:flex; align-items:center; gap:12px; background:#fff; border:1px solid var(--line); border-radius:4px; padding:10px 14px;}
-.stage-pill.active{border-color:var(--ink-red); background:#FBF3EC;}
+.stage-pill.active{border-color:var(--duo-green-deep); background:var(--duo-green-pale);}
 .stage-pill-num{width:26px; height:26px; border-radius:50%; background:var(--ink-navy); color:#fff; font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0;}
 .stage-pill-name{flex:0 0 160px; font-size:13px; font-weight:700; color:var(--text);}
 .stage-pill-bar{flex:1; height:5px; background:var(--line); border-radius:3px; overflow:hidden;}
-.stage-pill-fill{height:100%; background:var(--ink-red);}
+.stage-pill-fill{height:100%; background:var(--duo-green);}
 .stage-pill-count{font-size:11.5px; color:var(--muted); flex-shrink:0; min-width:44px; text-align:right;}
 .stage-pill-review-btn{
   flex-shrink:0; font-family:Georgia,serif; font-size:11px; font-weight:700;
@@ -122,7 +125,7 @@ body{
 /* ---- lesson / card ---- */
 .lesson-head{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px;}
 .lesson-breadcrumb{font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px;}
-.lesson-counter{font-size:13px; font-weight:700; color:var(--ink-red);}
+.lesson-counter{font-size:13px; font-weight:700; color:var(--duo-green-deep);}
 .lesson-exit-row{margin-bottom:8px;}
 .lesson-exit-link{
   background:none; border:none; padding:0; font-family:Georgia,serif; font-size:12.5px;
@@ -144,7 +147,7 @@ body{
 }
 .speak-btn:hover{background:#EDE4D0;}
 .speak-btn:active{transform:scale(0.92);}
-.speak-btn.speaking{background:var(--ink-red); border-color:var(--ink-red); color:#fff; animation:pulse 0.6s ease-in-out infinite alternate;}
+.speak-btn.speaking{background:var(--duo-green); border-color:var(--duo-green); color:#fff; animation:pulse 0.6s ease-in-out infinite alternate;}
 @keyframes pulse{ from{opacity:1;} to{opacity:.6;} }
 .speak-btn-sm{width:26px; height:26px; font-size:12px;}
 .card-en-row{display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
@@ -161,14 +164,14 @@ body{
 }
 .mic-btn:hover{background:#EDE4D0;}
 .mic-btn:active{transform:scale(0.92);}
-.mic-btn.mic-listening{background:var(--ink-red); border-color:var(--ink-red); color:#fff; animation:pulse 0.6s ease-in-out infinite alternate;}
+.mic-btn.mic-listening{background:var(--duo-green); border-color:var(--duo-green); color:#fff; animation:pulse 0.6s ease-in-out infinite alternate;}
 .mic-error-text{font-size:12px; color:var(--ink-red); margin:-4px 0 12px 0; line-height:1.5;}
 .browse-en-row{display:flex; align-items:center; gap:8px;}
 .feedback-answer-row{display:flex; align-items:center; gap:10px;}
 .card-divider{height:1px; background:var(--line); margin:14px 0;}
 .card-field{margin-bottom:14px;}
 .card-tr{font-size:17px; color:var(--text); font-weight:600;}
-.card-pron{font-size:15px; color:var(--ink-red); font-style:italic;}
+.card-pron{font-size:15px; color:var(--duo-green-deep); font-style:italic;}
 .word-list{display:flex; flex-direction:column; gap:4px;}
 .word-item{display:flex; gap:6px; font-size:13.5px;}
 .word-en{font-weight:700; color:var(--ink-navy); min-width:70px;}
@@ -177,7 +180,7 @@ body{
 .card-usage{font-size:13.5px; color:var(--text); line-height:1.6; font-style:italic;}
 
 .pattern-box{background:var(--paper); border-radius:4px; padding:14px 16px; margin:4px 0 18px 0; border:1px dashed var(--line);}
-.pattern-title{font-size:11.5px; font-weight:700; color:var(--ink-red); text-transform:uppercase; letter-spacing:.5px; margin-bottom:8px;}
+.pattern-title{font-size:11.5px; font-weight:700; color:var(--duo-green-deep); text-transform:uppercase; letter-spacing:.5px; margin-bottom:8px;}
 .pattern-row{display:flex; justify-content:space-between; gap:12px; font-size:13.5px; padding:5px 0; border-bottom:1px solid var(--line);}
 .pattern-row:last-child{border-bottom:none;}
 .pattern-en{font-weight:600; color:var(--text);}
@@ -272,23 +275,24 @@ body{
 
 /* ---- buttons ---- */
 .btn-primary{
-  background:var(--ink-red); color:#fff; border:none; border-radius:4px; padding:12px 22px;
+  background:var(--duo-green); color:#fff; border:none; border-radius:12px; padding:12px 22px;
   font-size:14.5px; font-weight:700; cursor:pointer; font-family:Georgia,serif;
-  box-shadow:1px 2px 0 rgba(139,46,46,0.3);
+  box-shadow:0 4px 0 var(--duo-green-deep); transition:transform .05s ease, box-shadow .05s ease;
 }
+.btn-primary:active{transform:translateY(3px); box-shadow:0 1px 0 var(--duo-green-deep);}
 .btn-primary:disabled{opacity:.5; cursor:not-allowed;}
 .btn-secondary{
-  background:#fff; color:var(--ink-navy); border:2px solid var(--ink-navy); border-radius:4px;
+  background:#fff; color:var(--ink-navy); border:2px solid var(--ink-navy); border-radius:12px;
   padding:10px 20px; font-size:14.5px; font-weight:700; cursor:pointer; font-family:Georgia,serif;
 }
 .btn-ghost{
-  background:transparent; color:var(--muted); border:1px solid var(--line); border-radius:4px;
+  background:transparent; color:var(--muted); border:1px solid var(--line); border-radius:12px;
   padding:10px 20px; font-size:13.5px; cursor:pointer; font-family:Georgia,serif;
 }
 
 /* ---- loading ---- */
 #loading-screen{min-height:100vh; display:flex; align-items:center; justify-content:center;}
-#loading-pen{font-size:40px; margin-bottom:8px; color:var(--ink-red); text-align:center;}
+#loading-pen{font-size:40px; margin-bottom:8px; color:var(--duo-green); text-align:center;}
 #loading-text{font-size:15px; color:var(--muted); text-align:center;}
 
 @media (max-width:480px){
@@ -1275,8 +1279,8 @@ function renderHome(){
       </div>
       <div class="hero-right">
         <svg width="140" height="140" viewBox="0 0 140 140">
-          <circle cx="70" cy="70" r="${r}" fill="none" stroke="#EAE3D3" stroke-width="12"/>
-          <circle cx="70" cy="70" r="${r}" fill="none" stroke="#8B2E2E" stroke-width="12"
+          <circle cx="70" cy="70" r="${r}" fill="none" stroke="#E5E5E5" stroke-width="12"/>
+          <circle cx="70" cy="70" r="${r}" fill="none" stroke="#58CC02" stroke-width="12"
             stroke-dasharray="${c}" stroke-dashoffset="${dashOffset}" stroke-linecap="round"
             transform="rotate(-90 70 70)" style="transition:stroke-dashoffset .6s ease"/>
           <text x="70" y="66" text-anchor="middle" font-size="26" font-weight="700" fill="#2A2620" font-family="Georgia,serif">${learnedCount}</text>
@@ -1329,7 +1333,7 @@ function renderHome(){
   });
 
   html += `</div>
-    <div class="build-version-tag">Sürüm: 2026-09-09 · "İ/ı" klavye sorunu ve eksik buton stili düzeltildi, arka plan yeşile çevrildi</div>`;
+    <div class="build-version-tag">Sürüm: 2026-09-09 · Arka plan Duolingo'daki gibi beyaza çevrildi, yeşil sadece marka/CTA vurgusu olarak kullanılıyor</div>`;
   document.getElementById("view-home").innerHTML = html;
 }
 
