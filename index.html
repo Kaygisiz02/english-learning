@@ -6,8 +6,8 @@
 <title>Anne ile İngilizce Öğreniyorum — 600 Cümle</title>
 <style>
 :root{
-  --paper:#F1EADB;
-  --paper-line:#E4DAC3;
+  --paper:#D7FFB8;
+  --paper-line:#C8F59E;
   --ink-navy:#1F3350;
   --ink-red:#8B2E2E;
   --line:#D8CCAF;
@@ -34,7 +34,7 @@ body{
 /* ---- top bar ---- */
 #topbar{
   position:sticky; top:0; z-index:10;
-  background:#EDE4D0;
+  background:var(--paper);
   border-bottom:3px double var(--ink-navy);
   box-shadow:0 2px 6px rgba(31,51,80,0.08);
 }
@@ -225,6 +225,12 @@ body{
 .feedback-bad{background:var(--bad-bg); border:1px solid var(--bad-border);}
 .feedback-answer{font-size:19px; font-weight:700; color:var(--ink-navy); margin-bottom:4px;}
 .feedback-label{font-size:13px; color:var(--text); margin-bottom:12px;}
+.undo-correct-link{
+  display:block; background:none; border:none; padding:0; margin:-4px 0 12px 0;
+  font-family:Georgia,serif; font-size:12px; color:var(--muted); cursor:pointer;
+  text-decoration:underline; text-underline-offset:2px;
+}
+.undo-correct-link:hover{color:var(--ink-red);}
 
 .done-stamp{font-size:40px; color:var(--good); text-align:center; margin-bottom:6px;}
 .done-list{display:flex; flex-direction:column; gap:8px; margin:18px 0; max-height:300px; overflow-y:auto;}
@@ -827,8 +833,23 @@ function expandContractions(str){
   }
   return result;
 }
+// Türkçe klavye / iOS gibi tarayıcıların otomatik büyük harf yapma özelliği bir
+// cümlenin başındaki "i"yi Türkçe kurala göre büyütüp "İ" (noktalı büyük I,
+// U+0130) üretebilir; bazı klavyeler de küçük "i" yerine noktasız "ı" (U+0131)
+// yazabilir. Sorun şu: JS'in standart toLowerCase() metodu "İ" harfini TEK bir
+// "i" karakterine değil, "i" + görünmez bir nokta işaretine (U+0307) çevirir -
+// yani normalize edilen metin karakter olarak doğru cevaptaki düz "i" ile asla
+// eşleşmez. Veri setindeki 600 cümlenin ~%37'si tam olarak "I " ile başladığı
+// için (I want..., I need..., I'm... vb.) bu, düzeltilmezse doğru yazılmış
+// cevapların önemli bir kısmının yanlış sayılmasına yol açar. Bu yüzden "İ" ve
+// "ı"yı, İngilizce bağlamda her ikisi de kullanıcının kastettiği düz "i"/"I"
+// harfine karşılık geldiğinden, standart toLowerCase() çağrılmadan ÖNCE düz
+// "i"ye çeviriyoruz.
+function turkishSafeLower(str){
+  return str.replace(/[İIı]/g, "i").toLowerCase();
+}
 function normalize(str){
-  return expandContractions(str.toLowerCase().trim())
+  return expandContractions(turkishSafeLower(str).trim())
     .replace(/[.!?,]/g,"")
     .replace(/['’]/g,"") // kalan apostroflar (o'clock gibi) için farkı yok say
     .replace(/\s+/g," ");
@@ -1308,7 +1329,7 @@ function renderHome(){
   });
 
   html += `</div>
-    <div class="build-version-tag">Sürüm: 2026-08-27 · Mikrofon hataları artık nedeniyle birlikte gösteriliyor</div>`;
+    <div class="build-version-tag">Sürüm: 2026-09-09 · "İ/ı" klavye sorunu ve eksik buton stili düzeltildi, arka plan yeşile çevrildi</div>`;
   document.getElementById("view-home").innerHTML = html;
 }
 
@@ -1593,6 +1614,7 @@ function renderLesson(){
         <p class="recall-hint">İngilizcesini yazmayı dene. Emin değilsen tahmin et, olmadı "Cevabı Göster"e bas.</p>
         <div class="answer-input-row">
           <input type="text" class="text-input" id="lesson-answer-input" placeholder="İngilizcesini buraya yaz…"
+            autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off"
             value="${escapeHtml(lessonState.answer)}" ${fb ? "disabled" : ""}
             oninput="lessonState.answer=this.value; lessonSyncCheckBtn()" onkeydown="if(event.key==='Enter' && !lessonState.feedback) lessonCheckAnswer()">
           ${(speechRecognitionSupported && !fb) ? `<button class="mic-btn" id="lesson-mic-btn" onclick="lessonStartMic()" title="Konuşarak cevapla" aria-label="Konuşarak cevapla">🎤</button>` : ""}
@@ -1903,6 +1925,7 @@ function renderPractice(){
       <div class="card-tr" style="margin-bottom:14px">${escapeHtml(sentence.tr)}</div>
       <div class="answer-input-row">
         <input type="text" class="text-input" id="practice-answer-input" placeholder="İngilizcesini buraya yaz…"
+          autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off"
           value="${escapeHtml(practiceState.answer)}" ${fb ? "disabled" : ""}
           oninput="practiceState.answer=this.value; practiceSyncCheckBtn()" onkeydown="if(event.key==='Enter' && !practiceState.feedback) practiceCheckAnswer()">
         ${(speechRecognitionSupported && !fb) ? `<button class="mic-btn" id="practice-mic-btn" onclick="practiceStartMic()" title="Konuşarak cevapla" aria-label="Konuşarak cevapla">🎤</button>` : ""}
