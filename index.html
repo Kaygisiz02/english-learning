@@ -367,6 +367,49 @@ body{
   .path-node{width:112px;}
   .path-node-circle{width:50px; height:50px; font-size:17px;}
 }
+
+/* ---- motivasyon şeridi (Duolingo tarzı maskot mesajı) ---- */
+.mascot-strip{
+  display:flex; align-items:center; gap:12px; background:#FFF8E8;
+  border:1px solid var(--line); border-left:4px solid var(--streak-orange);
+  border-radius:4px; padding:12px 16px; margin-bottom:18px;
+  box-shadow:2px 3px 0 rgba(31,51,80,0.05);
+}
+.mascot-emoji{font-size:26px; flex-shrink:0; line-height:1;}
+.mascot-text{font-size:13.5px; color:var(--text); line-height:1.45;}
+.mascot-text strong{color:var(--ink-navy);}
+
+/* ---- haftalık seri takvimi ---- */
+.week-strip{
+  display:flex; justify-content:space-between; gap:6px; margin:14px 0 4px 0;
+}
+.week-day{
+  display:flex; flex-direction:column; align-items:center; gap:5px; flex:1;
+}
+.week-day-label{font-size:10px; color:var(--muted); font-weight:700; text-transform:uppercase;}
+.week-day-dot{
+  width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+  border:2px solid var(--line); background:#fff; font-size:13px; color:var(--muted); flex-shrink:0;
+}
+.week-day-dot.is-active{background:var(--duo-green); border-color:var(--duo-green-deep); color:#fff;}
+.week-day-dot.is-today{border-color:var(--streak-orange); border-width:2.5px;}
+.week-day-dot.is-today.is-active{background:var(--streak-orange); border-color:var(--streak-orange-deep);}
+
+/* ---- sıradaki cümleler önizlemesi ---- */
+.preview-list{display:flex; flex-direction:column; gap:0; margin-top:2px;}
+.preview-row{
+  display:flex; align-items:baseline; gap:10px; padding:9px 2px;
+  border-bottom:1px solid var(--paper-line);
+}
+.preview-row:last-child{border-bottom:none;}
+.preview-num{font-size:11px; color:var(--muted); font-weight:700; min-width:20px;}
+.preview-en{font-size:13.5px; font-weight:600; color:var(--ink-navy); flex-shrink:0;}
+.preview-tr{font-size:12px; color:var(--muted);}
+.preview-more{font-size:12px; color:var(--muted); font-style:italic; padding:8px 2px 0 2px;}
+
+/* ---- bölüm başlığı satırı ---- */
+.section-head-row{display:flex; align-items:baseline; justify-content:space-between; margin:24px 0 10px 0;}
+.section-head-row .subheading{margin:0;}
 </style>
 </head>
 <body>
@@ -479,6 +522,67 @@ function getDailyGoalStatus(){
     return { done: log.reviewCount > 0 || log.newCount > 0, newCount: log.newCount, target: 0, deckFinished: true };
   }
   return { done: log.newCount >= target, newCount: log.newCount, target, deckFinished: false };
+}
+
+// Son 7 günün (bugün dahil, en solda 6 gün önce) aktivite durumunu döndürür.
+// Haftalık seri şeridi için kullanılır — Duolingo'nun hafta görünümüne benzer.
+function getWeekActivity(){
+  const today = todayStr();
+  const dayLabels = ["Pt","Sa","Ça","Pe","Cu","Ct","Pz"];
+  const days = [];
+  for(let i=6; i>=0; i--){
+    const d = addDaysStr(today, -i);
+    const log = progress.dailyLog[d] || { newCount:0, reviewCount:0 };
+    const jsDay = new Date(d + "T00:00:00").getDay(); // 0=Pazar
+    const labelIdx = (jsDay + 6) % 7; // Pazartesi=0 olacak şekilde kaydır
+    days.push({
+      date: d,
+      label: dayLabels[labelIdx],
+      active: ((log.newCount||0) + (log.reviewCount||0)) > 0,
+      isToday: d === today
+    });
+  }
+  return days;
+}
+
+// Ana sayfadaki maskot/motivasyon şeridi için duruma göre değişen kısa mesaj.
+// Ana sayfadaki maskot/motivasyon şeridi için duruma göre değişen kısa mesaj.
+// Duolingo'daki "bugün ne yapman gerektiğini söyleyen" küçük ipucu şeridinden ilham alındı.
+// Not: hero başlığı zaten "şu an X. cümledesin" bilgisini veriyor, bu yüzden burada
+// onunla çakışmayan, gerçekten ek bilgi taşıyan durumlar dışında mesaj döndürülmüyor (null).
+function getMascotMessage(){
+  const streak = computeStreak();
+  const dueToday = getDueReviews().length;
+  const goal = getDailyGoalStatus();
+  const learnedCount = Object.keys(progress.learned).length;
+
+  // Seri en az 2 gün üst üste sürüyorsa VE bugün henüz çalışılmadıysa gerçek
+  // bir "risk" var — sadece dünkü tek günlük çalışmayı "seri" diye sunup
+  // gereksiz alarm vermemek için eşiği 1'in üstünde tutuyoruz.
+  if(streak.atRisk && streak.count > 1){
+    return { emoji:"⚠️", html:`<strong>${streak.count} günlük serin</strong> risk altında — bugün çalışmazsan sıfırlanacak. Hemen küçük bir ders yapalım mı?` };
+  }
+  if(goal.deckFinished && !goal.done){
+    return { emoji:"🏁", html:"800 cümlenin hepsini öğrendin! Şimdi tekrarlarla bilgini tazelemenin tam zamanı." };
+  }
+  if(dueToday >= 10){
+    return { emoji:"⏰", html:`Bugün <strong>${dueToday} cümle</strong> tekrar bekliyor. Unutmadan önce bir göz atmaya ne dersin?` };
+  }
+  if(goal.done){
+    return { emoji:"🎉", html:"Bugünkü hedefini tamamladın, harikasın! İstersen fazladan bir tur daha atabilirsin." };
+  }
+  if(streak.count >= 3){
+    return { emoji:"🔥", html:`<strong>${streak.count} gündür</strong> kesintisiz çalışıyorsun. Bu ivmeyi bugün de sürdürelim!` };
+  }
+  // Seri tamamen sıfırlanmış (dün de çalışılmamış, artık "risk altında"
+  // değil çünkü kurtarılacak bir şey kalmadı) ama daha önce en az bir şey
+  // öğrenilmiş — bu, kullanıcıyı nazikçe geri çağırmamız gereken durum.
+  if(learnedCount > 0 && streak.count === 0){
+    return dueToday > 0
+      ? { emoji:"👋", html:`Bir süredir uğramadın. <strong>${dueToday} cümle</strong> seni tekrar için bekliyor — küçük bir başlangıç yapalım mı?` }
+      : { emoji:"👋", html:"Bir süredir uğramadın. Kaldığın yerden birkaç cümleyle devam etmeye ne dersin?" };
+  }
+  return null;
 }
 
 /* ---- kutlama: konfeti + çeşitlenen tebrik kelimeleri ---- */
@@ -1424,7 +1528,49 @@ function renderHome(){
     ? (goal.done ? "✓ Bugün tekrar yaptın" : "Bugün için tekrar bekliyor")
     : (goal.done ? "✓ Bugünkü hedef tamam" : `Bugün: ${goal.newCount}/${goal.target} yeni`);
 
+  const mascot = getMascotMessage();
+  const week = getWeekActivity();
+  let weekHtml = "";
+  week.forEach(d => {
+    const cls = ["week-day-dot"];
+    if(d.active) cls.push("is-active");
+    if(d.isToday) cls.push("is-today");
+    weekHtml += `
+      <div class="week-day">
+        <div class="week-day-label">${d.label}</div>
+        <div class="${cls.join(" ")}">${d.active ? "✓" : ""}</div>
+      </div>`;
+  });
+
+  // Sıradaki (henüz öğrenilmemiş) birkaç cümlenin önizlemesi — Memrise tarzı
+  // "bugün bunları göreceksin" hissi vermek için.
+  let previewHtml = "";
+  if(nextId <= 800){
+    const previewIds = [];
+    for(let i=nextId; i<=Math.min(nextId+2, 800); i++) previewIds.push(i);
+    previewIds.forEach(id => {
+      const s = findSentence(id);
+      if(!s) return;
+      previewHtml += `
+        <div class="preview-row">
+          <div class="preview-num">${id}</div>
+          <div class="preview-en">${escapeHtml(s.en)}</div>
+          <div class="preview-tr">${escapeHtml(s.tr)}</div>
+        </div>`;
+    });
+    const remainingInBatch = Math.max(0, Math.min(dailyCount, (STAGES[currentStageIdx].to - nextId + 1)) - previewIds.length);
+    if(remainingInBatch > 0){
+      previewHtml += `<div class="preview-more">+ bugünkü derste ${remainingInBatch} cümle daha…</div>`;
+    }
+  }
+
   let html = `
+    ${mascot ? `
+    <div class="mascot-strip">
+      <div class="mascot-emoji">${mascot.emoji}</div>
+      <div class="mascot-text">${mascot.html}</div>
+    </div>` : ""}
+
     <div class="hero">
       <div class="hero-left">
         <div class="hero-eyebrow">AŞAMA ${currentStageIdx+1} · ${escapeHtml(stage.name)}</div>
@@ -1441,6 +1587,7 @@ function renderHome(){
           </select>
         </div>
         ${dailyCount >= 15 ? `<p class="daily-count-warning">Not: Yüksek bir sayı seçtin. Her yeni cümle önümüzdeki günlerde tekrar olarak geri dönecek, bu yüzden ${dailyCount} cümle/gün birkaç gün içinde tekrar yükünü belirgin şekilde artırabilir. Sürdürülebilir bulmuyorsan 8-10'a düşürmek daha rahat bir tempo sağlar.</p>` : ""}
+        <div class="week-strip">${weekHtml}</div>
       </div>
       <div class="hero-right">
         <svg width="140" height="140" viewBox="0 0 140 140">
@@ -1455,6 +1602,12 @@ function renderHome(){
         <div class="daily-goal-pill ${goal.done?'done':''}">${goalLabel}</div>
       </div>
     </div>
+
+    ${previewHtml ? `
+    <div class="panel" style="margin-bottom:20px;">
+      <h3 class="subheading" style="margin-top:0;">Bugün Bunları Göreceksin</h3>
+      <div class="preview-list">${previewHtml}</div>
+    </div>` : ""}
 
     <div class="card-grid">
       <button class="stat-card" style="border-top-color:#2B4C6F" onclick="setView('practice')">
@@ -1479,7 +1632,9 @@ function renderHome(){
       </button>
     </div>
 
-    <h3 class="subheading">Ders Yolu</h3>
+    <div class="section-head-row">
+      <h3 class="subheading">Ders Yolu</h3>
+    </div>
     <div class="lesson-path">
   `;
 
@@ -1505,6 +1660,7 @@ function renderHome(){
   });
 
   html += `</div>
+
     <div class="build-version-tag">Sürüm: 2026-09-09 · 800 cümleye çıkarıldı (200 yeni: teknoloji, banka, ev, seyahat, acil durum, okul, iş, karşılaştırma, sosyal medya, ileri dilbilgisi), 10 bölüm 80'er cümleye güncellendi</div>`;
   document.getElementById("view-home").innerHTML = html;
 }
