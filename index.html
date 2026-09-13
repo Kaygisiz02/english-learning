@@ -2,8 +2,26 @@
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Anne ile İngilizce Öğreniyorum — 800 Cümle</title>
+
+<!-- PWA: manifest ve tema rengi. manifest.json ve icons/ klasörü bu HTML
+     dosyasıyla aynı dizinde bulunmalı; farklı bir yola koyarsan href'leri
+     ona göre güncelle. -->
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#58A700">
+<link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
+<link rel="apple-touch-icon" href="./icons/icon-180.png">
+
+<!-- iOS'ta "Ana Ekrana Ekle" ile açılan PWA'nın tam ekran/native hissi
+     vermesi için Apple'a özgü meta etiketleri. Android/Chrome bunlara
+     ihtiyaç duymaz, manifest.json yeterlidir, ama iOS Safari manifest'in
+     "display: standalone" alanını hâlâ tam desteklemediği için bu üç satır
+     olmadan iOS'ta adres çubuğu görünmeye devam eder. -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="İngilizce 800">
+
 <style>
 :root{
   --paper:#FFFFFF;
@@ -384,6 +402,43 @@ details[open] .preview-summary::after{content:" ▴";}
 #loading-pen{font-size:40px; margin-bottom:8px; color:var(--duo-green); text-align:center;}
 #loading-text{font-size:15px; color:var(--muted); text-align:center;}
 
+/* ---- ilk kullanım tanıtımı (onboarding) ---- */
+#onboarding-overlay{
+  position:fixed; inset:0; z-index:2000;
+  background:rgba(31,51,80,0.55);
+  display:flex; align-items:center; justify-content:center;
+  padding:20px;
+}
+#onboarding-card{
+  background:#FEFCF6; border-radius:8px; max-width:420px; width:100%;
+  padding:28px 24px; box-shadow:0 8px 24px rgba(0,0,0,0.25);
+  max-height:90vh; overflow-y:auto;
+}
+.onboarding-step{display:flex; flex-direction:column; align-items:center; text-align:center;}
+.onboarding-emoji{font-size:44px; margin-bottom:14px; line-height:1;}
+.onboarding-title{font-size:19px; font-weight:700; color:var(--ink-navy); margin-bottom:10px; font-family:Georgia,serif;}
+.onboarding-text{font-size:14px; color:var(--text); line-height:1.6; margin-bottom:22px;}
+.onboarding-dots{display:flex; gap:6px; justify-content:center; margin-bottom:18px;}
+.onboarding-dot{width:7px; height:7px; border-radius:50%; background:var(--line);}
+.onboarding-dot.active{background:var(--duo-green-deep); width:18px; border-radius:4px; transition:width .2s ease;}
+.onboarding-buttons{display:flex; gap:10px; justify-content:center; width:100%;}
+.onboarding-skip{
+  background:none; border:none; padding:8px; margin-top:10px;
+  font-family:Georgia,serif; font-size:12.5px; color:var(--muted); cursor:pointer;
+  text-decoration:underline; text-underline-offset:2px;
+}
+
+/* ---- ana sayfa hero'sundaki bildirim durumu satırı ---- */
+.notif-row{
+  display:flex; align-items:center; gap:6px; flex-wrap:wrap;
+  font-size:12.5px; color:var(--muted); margin-bottom:16px; line-height:1.5;
+}
+.notif-icon{font-size:14px; flex-shrink:0;}
+.notif-link{
+  background:none; border:none; padding:0; font-family:Georgia,serif; font-size:12.5px;
+  color:var(--duo-green-deep); font-weight:700; cursor:pointer; text-decoration:underline; text-underline-offset:2px;
+}
+
 @media (max-width:480px){
   .path-row{max-width:260px;}
   .path-node{width:112px;}
@@ -444,6 +499,12 @@ details[open] .preview-summary::after{content:" ▴";}
 </div>
 
 <div id="confetti-layer"></div>
+
+<div id="onboarding-overlay" class="hidden">
+  <div id="onboarding-card">
+    <div id="onboarding-steps"></div>
+  </div>
+</div>
 
 <div id="app" class="hidden">
   <div id="topbar">
@@ -559,6 +620,122 @@ function getDailyGoalStatus(){
     return { done: log.reviewCount > 0 || log.newCount > 0, newCount: log.newCount, target: 0, deckFinished: true };
   }
   return { done: log.newCount >= target, newCount: log.newCount, target, deckFinished: false };
+}
+
+/* ============================================================
+   HATIRLATMA BİLDİRİMLERİ (Notification API)
+   ============================================================
+   ÖNEMLİ SINIR: Bu, gerçek bir push bildirimi DEĞİLDİR. Tarayıcı kapalıyken
+   ya da sekme/uygulama hiç açılmadığında hiçbir şey tetiklenmez — bunun için
+   bir sunucu (push servisi) gerekir, ki bu uygulamanın backend'i yok.
+   Burada yapılan: kullanıcı bildirim iznini VERDİYSE ve uygulamayı gün
+   içinde AÇTIYSA, o gün henüz hiç çalışmadıysa bir kerelik yerel bir
+   bildirim gösterilir. Yani bu bir "uygulamayı açtığında hatırlat" özelliği,
+   "uygulamayı açmasa bile hatırlat" değil.
+   ============================================================ */
+const notificationsSupported = ("Notification" in window);
+
+function getNotificationPermissionState(){
+  if(!notificationsSupported) return "unsupported";
+  return Notification.permission; // "default" | "granted" | "denied"
+}
+
+function requestNotificationPermission(){
+  if(!notificationsSupported){
+    alert("Bu tarayıcı bildirimleri desteklemiyor.");
+    return;
+  }
+  Notification.requestPermission().then(function(permission){
+    if(!progress.settings) progress.settings = {};
+    progress.settings.notificationsEnabled = (permission === "granted");
+    saveProgress();
+    renderHome();
+    if(permission === "denied"){
+      alert("Bildirim izni reddedildi. İstersen tarayıcı ayarlarından bu site için izni daha sonra değiştirebilirsin.");
+    }
+  }).catch(function(){
+    // Bazı eski tarayıcılarda requestPermission Promise yerine callback
+    // bekler; burada sessizce başarısız olması uygulamanın geri kalanını
+    // etkilemez, kullanıcı butona tekrar basabilir.
+  });
+}
+
+function disableNotifications(){
+  if(!progress.settings) progress.settings = {};
+  progress.settings.notificationsEnabled = false;
+  saveProgress();
+  renderHome();
+}
+
+// Uygulama açıldığında bir kez çağrılır: izin verilmiş VE bugün için daha
+// önce gösterilmemişse VE bugün henüz hiç çalışılmamışsa bir hatırlatma
+// bildirimi gösterir. dailyLog kontrolü (öğrenme ya da tekrar sayısı) zaten
+// "bugün pratik yapıldı mı" sorusuna cevap veriyor, mascot mesajındaki
+// mantıkla tutarlı.
+function maybeShowDailyReminder(){
+  if(!notificationsSupported) return;
+  if(Notification.permission !== "granted") return;
+  if(!progress.settings || !progress.settings.notificationsEnabled) return;
+
+  const today = todayStr();
+  if(progress.lastNotificationShownDate === today) return; // bugün zaten gösterildi
+
+  const log = progress.dailyLog[today] || { newCount:0, reviewCount:0 };
+  const alreadyPracticedToday = (log.newCount||0) + (log.reviewCount||0) > 0;
+  if(alreadyPracticedToday) return;
+
+  const dueToday = getDueReviews().length;
+  const body = dueToday > 0
+    ? `${dueToday} cümle tekrar bekliyor. Birkaç dakikanı ayırmaya ne dersin?`
+    : "Bugün henüz İngilizce çalışmadın. Kısa bir ders yapmaya ne dersin?";
+
+  try{
+    const notif = new Notification("Anne ile İngilizce Öğreniyorum", {
+      body: body,
+      icon: "./icons/icon-192.png",
+      tag: "daily-reminder" // aynı gün içinde tekrar tetiklenirse öncekinin üzerine yazar, yığılmaz
+    });
+    notif.onclick = function(){
+      window.focus();
+      notif.close();
+    };
+  }catch(e){
+    // Bazı tarayıcılar (özellikle mobil Chrome) sayfa içinden doğrudan
+    // "new Notification()" çağrılmasını desteklemez, service worker
+    // üzerinden gösterilmesini ister. Böyle bir durumda sessizce geç —
+    // bildirim gösterilmemiş olur ama uygulama çalışmaya devam eder.
+    if(navigator.serviceWorker && navigator.serviceWorker.ready){
+      navigator.serviceWorker.ready.then(function(reg){
+        if(reg && reg.showNotification){
+          reg.showNotification("Anne ile İngilizce Öğreniyorum", { body: body, icon: "./icons/icon-192.png", tag: "daily-reminder" });
+        }
+      }).catch(function(){});
+    }
+  }
+
+  progress.lastNotificationShownDate = today;
+  saveProgress();
+}
+
+// Ana sayfada hero'nun altında gösterilen küçük bildirim durumu satırı.
+// Üç durum: (1) tarayıcı desteklemiyor -> hiçbir şey gösterme, (2) izin
+// henüz istenmemiş/reddedilmemiş -> "Bildirimleri Aç" teklifi, (3) izin
+// verilmiş ve açık -> durumu göster + kapatma seçeneği sun.
+function renderNotificationRow(){
+  if(!notificationsSupported) return "";
+  const permission = getNotificationPermissionState();
+  const enabled = progress.settings && progress.settings.notificationsEnabled && permission === "granted";
+
+  if(permission === "denied"){
+    // Tarayıcı düzeyinde reddedilmiş; JS'ten tekrar izin istenemez, kullanıcı
+    // ancak tarayıcı ayarlarından değiştirebilir. Bunu açıkça belirtiyoruz
+    // ki kullanıcı butona basıp hiçbir şey olmadığını görüp kafası karışmasın.
+    return `<div class="notif-row"><span class="notif-icon">🔕</span> Bildirimler tarayıcı ayarlarından engellenmiş. Açmak istersen tarayıcının site ayarlarından izin verebilirsin.</div>`;
+  }
+  if(enabled){
+    return `<div class="notif-row"><span class="notif-icon">🔔</span> Günlük hatırlatmalar açık. <button class="notif-link" onclick="disableNotifications()">Kapat</button></div>`;
+  }
+  return `<div class="notif-row"><span class="notif-icon">🔔</span> O gün henüz çalışmadıysan hatırlatalım mı? <button class="notif-link" onclick="requestNotificationPermission()">Bildirimleri Aç</button></div>`;
 }
 
 // Son 7 günün (bugün dahil, en solda 6 gün önce) aktivite durumunu döndürür.
@@ -1505,7 +1682,9 @@ function defaultProgress(){
     learned: {},
     mistakes: {},
     dailyLog: {},
-    settings: { dailyNewCount: 8 }
+    settings: { dailyNewCount: 8, notificationsEnabled: false },
+    onboardingSeen: false,
+    lastNotificationShownDate: null
   };
 }
 
@@ -1517,7 +1696,15 @@ function loadProgress(){
     const raw = localStorage.getItem(STORAGE_KEY);
     if(raw){
       const parsed = JSON.parse(raw);
-      progress = Object.assign(defaultProgress(), parsed);
+      // Zaten kayıtlı ilerlemesi olan (raw mevcut) bir kullanıcı, tanımı
+      // gereği uygulamayı daha önce kullanmıştır. parsed içinde
+      // onboardingSeen alanı hiç YOKSA (eski bir sürümden gelen veri,
+      // bu alan henüz eklenmemişken kaydedilmiş) onu true varsayıyoruz.
+      // Ama parsed.onboardingSeen açıkça false ise (kullanıcı onboarding
+      // adımlarını yarıda bırakıp sekmeyi kapatmış olabilir) buna
+      // dokunmuyoruz — bir sonraki açılışta kaldığı yerden devam etsin.
+      const onboardingSeen = ("onboardingSeen" in parsed) ? parsed.onboardingSeen : true;
+      progress = Object.assign(defaultProgress(), parsed, { onboardingSeen });
     }
   }catch(e){
     console.warn("İlerleme yüklenemedi, sıfırdan başlanıyor.", e);
@@ -1786,6 +1973,8 @@ function renderHome(){
       ${dailyCount >= 15 ? `<p class="daily-count-warning">Not: Yüksek bir sayı seçtin. Her yeni cümle önümüzdeki günlerde tekrar olarak geri dönecek, bu yüzden ${dailyCount} cümle/gün birkaç gün içinde tekrar yükünü belirgin şekilde artırabilir. Sürdürülebilir bulmuyorsan 8-10'a düşürmek daha rahat bir tempo sağlar.</p>` : ""}
       <div class="week-strip">${weekHtml}</div>
     </div>
+
+    ${renderNotificationRow()}
 
     ${previewHtml ? `
     <details class="panel preview-details" style="margin-bottom:20px;">
@@ -2864,6 +3053,75 @@ function browseSetQuery(v){
 }
 
 /* ============================================================
+   İLK KULLANIM TANITIMI (ONBOARDING)
+   ============================================================
+   Sadece hiç ilerlemesi olmayan (localStorage'da kayıt bulunmayan)
+   yepyeni kullanıcılara, uygulamayı normal ana sayfa akışından önce
+   3 kısa adımda tanıtır. Eski kullanıcılar (loadProgress içindeki mantık
+   gereği) bunu hiç görmez.
+   ============================================================ */
+const ONBOARDING_STEPS = [
+  {
+    emoji: "👋",
+    title: "Hoş geldin!",
+    text: "Bu defterde günlük hayatta işine yarayacak 800 İngilizce cümleyi adım adım öğreneceksin. Her ders birkaç yeni cümle öğretir, sonra onları pratikle pekiştirirsin."
+  },
+  {
+    emoji: "🔁",
+    title: "Unutmadan tekrar",
+    text: "Öğrendiğin her cümle, unutmaya başlamadan tam zamanında karşına tekrar çıkar — önce ertesi gün, sonra birkaç gün, sonra haftalar sonra. Bu sayede az zamanla kalıcı öğrenirsin."
+  },
+  {
+    emoji: "🔊",
+    title: "Dinle ve konuş",
+    text: "Cümlelerin yanındaki 🔊 simgesine dokunarak doğru telaffuzu dinleyebilir, 🎤 simgesiyle cevabını sesli de verebilirsin. Ana sayfadan günde kaç yeni cümle göreceğini de ayarlayabilirsin."
+  }
+];
+let onboardingStepIdx = 0;
+
+function shouldShowOnboarding(){
+  return progress.onboardingSeen === false;
+}
+
+function renderOnboarding(){
+  const el = document.getElementById("onboarding-steps");
+  const step = ONBOARDING_STEPS[onboardingStepIdx];
+  const isLast = onboardingStepIdx === ONBOARDING_STEPS.length - 1;
+
+  let dotsHtml = "";
+  ONBOARDING_STEPS.forEach((_, i) => {
+    dotsHtml += `<div class="onboarding-dot ${i===onboardingStepIdx?'active':''}"></div>`;
+  });
+
+  el.innerHTML = `
+    <div class="onboarding-step">
+      <div class="onboarding-emoji">${step.emoji}</div>
+      <div class="onboarding-title">${escapeHtml(step.title)}</div>
+      <div class="onboarding-text">${escapeHtml(step.text)}</div>
+      <div class="onboarding-dots">${dotsHtml}</div>
+      <div class="onboarding-buttons">
+        <button class="btn-primary" onclick="onboardingNext()">${isLast ? "Başlayalım" : "Devam"}</button>
+      </div>
+      ${!isLast ? `<button class="onboarding-skip" onclick="onboardingFinish()">Geç</button>` : ""}
+    </div>`;
+}
+
+function onboardingNext(){
+  if(onboardingStepIdx < ONBOARDING_STEPS.length - 1){
+    onboardingStepIdx += 1;
+    renderOnboarding();
+  } else {
+    onboardingFinish();
+  }
+}
+
+function onboardingFinish(){
+  progress.onboardingSeen = true;
+  saveProgress();
+  document.getElementById("onboarding-overlay").classList.add("hidden");
+}
+
+/* ============================================================
    BAŞLANGIÇ
    ============================================================ */
 window.addEventListener("DOMContentLoaded", function(){
@@ -2871,7 +3129,37 @@ window.addEventListener("DOMContentLoaded", function(){
   document.getElementById("loading-screen").classList.add("hidden");
   document.getElementById("app").classList.remove("hidden");
   setView("home");
+  if(shouldShowOnboarding()){
+    onboardingStepIdx = 0;
+    renderOnboarding();
+    document.getElementById("onboarding-overlay").classList.remove("hidden");
+  } else {
+    // Onboarding gösterilecekse hatırlatmayı erteliyoruz — yeni kullanıcıyı
+    // daha uygulamayı tanımadan bir izin isteğiyle karşılamak istemiyoruz.
+    maybeShowDailyReminder();
+  }
 });
+
+/* ============================================================
+   PWA: SERVICE WORKER KAYDI
+   ============================================================
+   Uygulamayı offline çalışır ve ana ekrana eklenebilir hale getirir.
+   Kayıt işlemi sayfa yüklenmesini bloklamaması için "load" event'inde
+   (DOMContentLoaded'dan sonra, tüm kaynaklar hazır olduğunda) yapılır.
+   service-worker.js dosyası bu HTML ile aynı dizinde olmalı — farklı bir
+   yola koyarsan hem buradaki yolu hem service-worker.js içindeki
+   PRECACHE_URLS listesini güncellemen gerekir. */
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", function(){
+    navigator.serviceWorker.register("./service-worker.js").catch(function(err){
+      // Kayıt başarısız olursa (örn. file:// üzerinden açılmışsa ya da
+      // tarayıcı desteklemiyorsa) sessizce yut — uygulama service worker
+      // olmadan da normal şekilde çalışmaya devam eder, sadece offline
+      // desteği ve "ana ekrana ekle" istemi çalışmaz.
+      console.warn("Service worker kaydı başarısız oldu:", err);
+    });
+  });
+}
 </script>
 </body>
 </html>
