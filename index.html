@@ -53,6 +53,14 @@ body{
   padding-bottom:60px;
 }
 .hidden{display:none !important;}
+/* Ekran okuyucular için: elementi görsel olarak tamamen gizler ama
+   erişilebilirlik ağacından ÇIKARMAZ (display:none aksine) — bu yüzden
+   aria-live bölgeleri gibi "görünmesin ama duyurulsun" gereken yerlerde
+   .hidden yerine bu kullanılır. Standart, yaygın kabul görmüş bir kalıptır. */
+.sr-only{
+  position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+  overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0;
+}
 
 /* ---- top bar ---- */
 #topbar{
@@ -500,6 +508,12 @@ details[open] .preview-summary::after{content:" ▴";}
 
 <div id="confetti-layer"></div>
 
+<!-- Ekran okuyucular için: görsel olarak gizli, ama JS ile içeriği
+     değiştirildiğinde (view geçişleri, doğru/yanlış geri bildirimi gibi)
+     otomatik okunan canlı bölge. "polite" seçildi çünkü kullanıcının o an
+     yaptığı işi (örn. bir input'a yazmayı) kesip araya girmemeli. -->
+<div id="sr-announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+
 <div id="onboarding-overlay" class="hidden">
   <div id="onboarding-card">
     <div id="onboarding-steps"></div>
@@ -509,29 +523,30 @@ details[open] .preview-summary::after{content:" ▴";}
 <div id="app" class="hidden">
   <div id="topbar">
     <div id="topbar-inner">
-      <div id="brand" onclick="goHome()">
-        <div id="brand-mark">800</div>
+      <div id="brand" onclick="goHome()" role="button" tabindex="0" aria-label="Ana sayfaya dön"
+        onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();goHome();}">
+        <div id="brand-mark" aria-hidden="true">800</div>
         <div>
           <div id="brand-title">Anne ile İngilizce Öğreniyorum</div>
           <div id="brand-sub"><span id="brand-count">0</span>/800 cümle · %<span id="brand-pct">0</span></div>
         </div>
       </div>
-      <div id="streak-badge" title="Günlük çalışma serisi"><span id="streak-flame">🔥</span><span id="streak-count">0</span></div>
-      <div id="progress-track"><div id="progress-fill"></div></div>
+      <div id="streak-badge" title="Günlük çalışma serisi" role="status"><span id="streak-flame" aria-hidden="true">🔥</span><span id="streak-count">0</span></div>
+      <div id="progress-track" role="progressbar" aria-label="Genel ilerleme" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="progress-fill"></div></div>
       <button class="nav-btn" onclick="exportProgress()" title="İlerlemeni dosyaya kaydet">Yedekle</button>
       <button class="nav-btn" onclick="triggerImport()" title="Yedekten geri yükle">Geri Yükle</button>
-      <input type="file" id="import-file" accept=".json" class="hidden" onchange="importProgress(event)">
+      <input type="file" id="import-file" accept=".json" class="hidden" onchange="importProgress(event)" aria-label="Yedek dosyası seç">
     </div>
   </div>
 
-  <div id="container">
+  <main id="container" tabindex="-1">
     <div id="view-home"></div>
     <div id="view-lesson" class="hidden"></div>
     <div id="view-practice" class="hidden"></div>
     <div id="view-mistakes" class="hidden"></div>
     <div id="view-stats" class="hidden"></div>
     <div id="view-browse" class="hidden"></div>
-  </div>
+  </main>
 </div>
 
 <script>
@@ -1555,8 +1570,13 @@ function speak(text, btnEl){
 
   if(btnEl){
     btnEl.classList.add("speaking");
-    utter.onend = () => btnEl.classList.remove("speaking");
-    utter.onerror = () => btnEl.classList.remove("speaking");
+    btnEl.setAttribute("aria-pressed", "true");
+    const stopSpeakingState = () => {
+      btnEl.classList.remove("speaking");
+      btnEl.setAttribute("aria-pressed", "false");
+    };
+    utter.onend = stopSpeakingState;
+    utter.onerror = stopSpeakingState;
   }
   window.speechSynthesis.speak(utter);
 }
@@ -1836,6 +1856,13 @@ let lessonPathExpanded = false; // Ana sayfada Ders Yolu varsayılan olarak dara
 
 const VIEWS = ["home","lesson","practice","mistakes","stats","browse"];
 
+// Her view'ın ekran okuyucuya duyurulacak Türkçe adı. VIEWS dizisiyle
+// aynı sırada tutulmasına gerek yok, sadece anahtarları eşleşmeli.
+const VIEW_ANNOUNCE_NAMES = {
+  home: "Ana Sayfa", lesson: "Ders", practice: "Tekrar Pratiği",
+  mistakes: "Zayıf Noktalar", stats: "İlerleme Karnesi", browse: "Tüm Cümleler"
+};
+
 function setView(name, skipLessonInit){
   // Hangi ekrana geçilirse geçilsin, önceki ekrandan kalan açık mikrofon
   // varsa kapatıyoruz — kullanıcı Practice'te mikrofona basıp cevap vermeden
@@ -1854,8 +1881,22 @@ function setView(name, skipLessonInit){
   if(name === "home") renderHome();
   updateTopbar();
   window.scrollTo(0,0);
+  // Klavye ve ekran okuyucu kullanıcıları için: her view değişiminde odağı
+  // ana içerik bölgesine taşıyoruz (Tab sırası baştan başlar, kullanıcı
+  // topbar'daki eski konumunda takılı kalmaz) ve değişikliği bir aria-live
+  // bölgesiyle duyuruyoruz — görme engelli bir kullanıcı "Ders Yolu"ndan
+  // "Ders" ekranına geçtiğinde bunu fark edebilsin diye.
+  const container = document.getElementById("container");
+  if(container && container.focus) container.focus({ preventScroll: true });
+  announceViewChange(VIEW_ANNOUNCE_NAMES[name] || name);
 }
 function goHome(){ setView("home"); }
+
+function announceViewChange(label){
+  const region = document.getElementById("sr-announcer");
+  if(!region) return;
+  region.textContent = label + " görüntüleniyor";
+}
 
 function updateTopbar(){
   const learnedCount = Object.keys(progress.learned).length;
@@ -1863,6 +1904,9 @@ function updateTopbar(){
   document.getElementById("brand-count").textContent = learnedCount;
   document.getElementById("brand-pct").textContent = pct;
   document.getElementById("progress-fill").style.width = pct + "%";
+  const progressTrack = document.getElementById("progress-track");
+  progressTrack.setAttribute("aria-valuenow", String(pct));
+  progressTrack.setAttribute("aria-valuetext", `${learnedCount}/800 cümle, yüzde ${pct}`);
 
   const streak = computeStreak();
   const badge = document.getElementById("streak-badge");
@@ -1870,9 +1914,11 @@ function updateTopbar(){
     badge.classList.add("show");
     badge.classList.toggle("at-risk", streak.atRisk);
     document.getElementById("streak-count").textContent = streak.count;
-    badge.title = streak.atRisk
+    const streakText = streak.atRisk
       ? "Bugün çalışmazsan serin bozulacak — kaybetme!"
       : "Bugün serini korudun, aferin!";
+    badge.title = streakText;
+    badge.setAttribute("aria-label", `${streak.count} günlük çalışma serisi. ${streakText}`);
   } else {
     badge.classList.remove("show","at-risk");
   }
@@ -2186,7 +2232,7 @@ function renderLesson(){
     if(siblings.length > 0){
       let rows = "";
       siblings.forEach(sib => {
-        rows += `<div class="pattern-row-with-speak"><div class="pattern-en-wrap"><button class="speak-btn speak-btn-sm" onclick="speakBtn(${jsStr(sib.en)}, this)" title="Sesli dinle" aria-label="Sesli dinle">🔊</button><span class="pattern-en">${escapeHtml(sib.en)}</span></div><span class="pattern-tr">${escapeHtml(sib.tr)}</span></div>`;
+        rows += `<div class="pattern-row-with-speak"><div class="pattern-en-wrap"><button class="speak-btn speak-btn-sm" onclick="speakBtn(${jsStr(sib.en)}, this)" title="Sesli dinle" aria-label="Sesli dinle" aria-pressed="false">🔊</button><span class="pattern-en">${escapeHtml(sib.en)}</span></div><span class="pattern-tr">${escapeHtml(sib.tr)}</span></div>`;
       });
       patternHtml = `<div class="pattern-box"><div class="pattern-title">Aynı kalıptan yeni cümleler türet</div>${rows}</div>`;
     }
@@ -2200,7 +2246,7 @@ function renderLesson(){
         <span class="card-label">English</span>
         <div class="card-en-row">
           <div class="card-en">${escapeHtml(sentence.en)}</div>
-          <button class="speak-btn" id="teach-main-speak-btn" onclick="speakBtn(${jsStr(sentence.en)}, this)" title="Sesli dinle" aria-label="Sesli dinle">🔊</button>
+          <button class="speak-btn" id="teach-main-speak-btn" onclick="speakBtn(${jsStr(sentence.en)}, this)" title="Sesli dinle" aria-label="Sesli dinle" aria-pressed="false">🔊</button>
         </div>
         <div class="card-divider"></div>
         <div class="card-field"><span class="card-label">Türkçesi</span><div class="card-tr">${escapeHtml(sentence.tr)}</div></div>
@@ -2230,11 +2276,13 @@ function renderLesson(){
     let optsHtml = "";
     opts.forEach((opt, i) => {
       let cls = "choice-btn";
+      let stateSuffix = "";
       if(selected !== null){
-        if(opt.isCorrect) cls += " choice-correct";
-        else if(i === selected) cls += " choice-wrong";
+        if(opt.isCorrect){ cls += " choice-correct"; stateSuffix = " (doğru cevap)"; }
+        else if(i === selected){ cls += " choice-wrong"; stateSuffix = " (seçtiğin, yanlış)"; }
       }
-      optsHtml += `<button class="${cls}" ${selected!==null?"disabled":""} onclick="lessonCheckRecognize(${i})">${escapeHtml(opt.text)}</button>`;
+      const ariaLabel = escapeHtml(opt.text) + stateSuffix;
+      optsHtml += `<button class="${cls}" ${selected!==null?"disabled":""} onclick="lessonCheckRecognize(${i})" aria-label="${ariaLabel}">${escapeHtml(opt.text)}</button>`;
     });
 
     el.innerHTML = `
@@ -2247,7 +2295,7 @@ function renderLesson(){
         <span class="card-label">Bu cümle Türkçe ne demek?</span>
         <div class="card-en-row">
           <div class="card-en" style="font-size:20px">${escapeHtml(sentence.en)}</div>
-          <button class="speak-btn" onclick="speakBtn(${jsStr(sentence.en)}, this)" title="Sesli dinle" aria-label="Sesli dinle">🔊</button>
+          <button class="speak-btn" onclick="speakBtn(${jsStr(sentence.en)}, this)" title="Sesli dinle" aria-label="Sesli dinle" aria-pressed="false">🔊</button>
         </div>
         <div class="choice-list">${optsHtml}</div>
         ${selected !== null ? `<button class="btn-primary" onclick="lessonGoToBuild()">Devam Et</button>` : ""}
@@ -2274,11 +2322,11 @@ function renderLesson(){
       ? `<span class="build-placeholder">Kelimelere dokunarak cümleyi buraya sırayla diz…</span>`
       : answer.map(tid => {
           const t = tiles.find(x => x.id === tid);
-          return `<button class="tile-btn tile-used" onclick="lessonRemoveTile(${tid})" ${fb?"disabled":""}>${escapeHtml(t.text)}</button>`;
+          return `<button class="tile-btn tile-used" onclick="lessonRemoveTile(${tid})" ${fb?"disabled":""} aria-label="${escapeHtml(t.text)} kelimesini cümleden çıkar">${escapeHtml(t.text)}</button>`;
         }).join(" ");
 
     const bankHtml = tiles.filter(t => !answer.includes(t.id)).map(t =>
-      `<button class="tile-btn" onclick="lessonAddTile(${t.id})" ${fb?"disabled":""}>${escapeHtml(t.text)}</button>`
+      `<button class="tile-btn" onclick="lessonAddTile(${t.id})" ${fb?"disabled":""} aria-label="${escapeHtml(t.text)} kelimesini cümleye ekle">${escapeHtml(t.text)}</button>`
     ).join(" ");
 
     let feedbackHtml = "";
@@ -2286,10 +2334,10 @@ function renderLesson(){
       const cls = fb === "correct" ? "feedback-good" : "feedback-bad";
       const label = fb === "correct" ? `<span class="praise-pop">${escapeHtml(lessonState.praiseWord || "Doğru sırada!")}</span> 👍` : "Doğru sıralama bu — bir dahaki sefere dikkat et.";
       feedbackHtml = `
-        <div class="feedback-box ${cls}">
+        <div class="feedback-box ${cls}" role="status" aria-live="assertive">
           <div class="feedback-answer-row">
             <div class="feedback-answer">${escapeHtml(sentence.en)}</div>
-            <button class="speak-btn" onclick="speakBtn(${jsStr(sentence.en)}, this)" title="Sesli dinle" aria-label="Sesli dinle">🔊</button>
+            <button class="speak-btn" onclick="speakBtn(${jsStr(sentence.en)}, this)" title="Sesli dinle" aria-label="Sesli dinle" aria-pressed="false">🔊</button>
           </div>
           <div class="feedback-label">${label}</div>
           <button class="btn-primary" onclick="lessonGoToRecall()">Şimdi Kendin Yaz</button>
@@ -2329,10 +2377,10 @@ function renderLesson(){
         : "";
       const nextLabel = (idx+1 < ids.length) ? "Sıradaki Cümle" : "Dersi Bitir";
       feedbackHtml = `
-        <div class="feedback-box ${cls}">
+        <div class="feedback-box ${cls}" role="status" aria-live="assertive">
           <div class="feedback-answer-row">
             <div class="feedback-answer">${escapeHtml(sentence.en)}</div>
-            <button class="speak-btn" id="recall-feedback-speak-btn" onclick="speakBtn(${jsStr(sentence.en)}, this)" title="Sesli dinle" aria-label="Sesli dinle">🔊</button>
+            <button class="speak-btn" id="recall-feedback-speak-btn" onclick="speakBtn(${jsStr(sentence.en)}, this)" title="Sesli dinle" aria-label="Sesli dinle" aria-pressed="false">🔊</button>
           </div>
           <div class="feedback-label">${label}</div>
           ${stageBanner}
@@ -2351,10 +2399,11 @@ function renderLesson(){
         <p class="recall-hint">İngilizcesini yazmayı dene. Emin değilsen tahmin et, olmadı "Cevabı Göster"e bas.</p>
         <div class="answer-input-row">
           <input type="text" class="text-input" id="lesson-answer-input" placeholder="İngilizcesini buraya yaz…"
+            aria-label="Cümlenin İngilizcesini yaz"
             autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off"
             value="${escapeHtml(lessonState.answer)}" ${fb ? "disabled" : ""}
             oninput="lessonState.answer=this.value; lessonSyncCheckBtn()" onkeydown="if(event.key==='Enter' && !lessonState.feedback) lessonCheckAnswer()">
-          ${(speechRecognitionSupported && !fb) ? `<button class="mic-btn" id="lesson-mic-btn" onclick="lessonStartMic()" title="Konuşarak cevapla" aria-label="Konuşarak cevapla">🎤</button>` : ""}
+          ${(speechRecognitionSupported && !fb) ? `<button class="mic-btn" id="lesson-mic-btn" onclick="lessonStartMic()" title="Konuşarak cevapla" aria-label="Konuşarak cevapla" aria-pressed="false">🎤</button>` : ""}
         </div>
         <div id="lesson-mic-error">${lessonState.micError ? `<div class="mic-error-text">${escapeHtml(lessonState.micError)}</div>` : ""}</div>
         ${!fb ? `
@@ -2397,8 +2446,8 @@ function lessonStartMic(){
     },
     (state, message) => {
       if(micBtn){
-        if(state === "listening") micBtn.classList.add("mic-listening");
-        else micBtn.classList.remove("mic-listening");
+        if(state === "listening"){ micBtn.classList.add("mic-listening"); micBtn.setAttribute("aria-pressed", "true"); }
+        else { micBtn.classList.remove("mic-listening"); micBtn.setAttribute("aria-pressed", "false"); }
       }
       if(state === "error"){
         lessonState.micError = message;
@@ -2682,10 +2731,10 @@ function renderPractice(){
       : "";
 
     feedbackHtml = `
-      <div class="feedback-box ${cls}">
+      <div class="feedback-box ${cls}" role="status" aria-live="assertive">
         <div class="feedback-answer-row">
           <div class="feedback-answer">${escapeHtml(sentence.en)}</div>
-          <button class="speak-btn" id="practice-feedback-speak-btn" onclick="speakBtn(${jsStr(sentence.en)}, this)" title="Sesli dinle" aria-label="Sesli dinle">🔊</button>
+          <button class="speak-btn" id="practice-feedback-speak-btn" onclick="speakBtn(${jsStr(sentence.en)}, this)" title="Sesli dinle" aria-label="Sesli dinle" aria-pressed="false">🔊</button>
         </div>
         <div class="feedback-label">${label}</div>
         ${undoLinkHtml}
@@ -2704,10 +2753,11 @@ function renderPractice(){
       <div class="card-tr" style="margin-bottom:14px">${escapeHtml(sentence.tr)}</div>
       <div class="answer-input-row">
         <input type="text" class="text-input" id="practice-answer-input" placeholder="İngilizcesini buraya yaz…"
+          aria-label="Cümlenin İngilizcesini yaz"
           autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off"
           value="${escapeHtml(practiceState.answer)}" ${fb ? "disabled" : ""}
           oninput="practiceState.answer=this.value; practiceSyncCheckBtn()" onkeydown="if(event.key==='Enter' && !practiceState.feedback) practiceCheckAnswer()">
-        ${(speechRecognitionSupported && !fb) ? `<button class="mic-btn" id="practice-mic-btn" onclick="practiceStartMic()" title="Konuşarak cevapla" aria-label="Konuşarak cevapla">🎤</button>` : ""}
+        ${(speechRecognitionSupported && !fb) ? `<button class="mic-btn" id="practice-mic-btn" onclick="practiceStartMic()" title="Konuşarak cevapla" aria-label="Konuşarak cevapla" aria-pressed="false">🎤</button>` : ""}
       </div>
       <div id="practice-mic-error">${practiceState.micError ? `<div class="mic-error-text">${escapeHtml(practiceState.micError)}</div>` : ""}</div>
       ${!fb ? `
@@ -2750,8 +2800,8 @@ function practiceStartMic(){
     },
     (state, message) => {
       if(micBtn){
-        if(state === "listening") micBtn.classList.add("mic-listening");
-        else micBtn.classList.remove("mic-listening");
+        if(state === "listening"){ micBtn.classList.add("mic-listening"); micBtn.setAttribute("aria-pressed", "true"); }
+        else { micBtn.classList.remove("mic-listening"); micBtn.setAttribute("aria-pressed", "false"); }
       }
       if(state === "error"){
         // Mikrofon izni reddedildiyse, internet yoksa vb. kullanıcıya NEDEN
@@ -2992,7 +3042,7 @@ function renderBrowse(){
         <div class="browse-id">${s.id}</div>
         <div class="browse-body">
           <div class="browse-en-row">
-            <button class="speak-btn speak-btn-sm" onclick="speakBtn(${jsStr(s.en)}, this)" title="Sesli dinle" aria-label="Sesli dinle">🔊</button>
+            <button class="speak-btn speak-btn-sm" onclick="speakBtn(${jsStr(s.en)}, this)" title="Sesli dinle" aria-label="Sesli dinle" aria-pressed="false">🔊</button>
             <div class="browse-en">${escapeHtml(s.en)}</div>
           </div>
           <div class="browse-tr">${escapeHtml(s.tr)}</div>
@@ -3006,6 +3056,7 @@ function renderBrowse(){
     <div class="panel">
       <h2 class="panel-title">Tüm Cümleler</h2>
       <input type="text" class="text-input" id="browse-search-input" placeholder="Cümle ara (İngilizce ya da Türkçe)…"
+        aria-label="Cümle ara"
         value="${escapeHtml(browseState.query)}" oninput="browseSetQuery(this.value)">
       <div class="stage-tabs">${tabsHtml}</div>
       <div class="browse-list">${rowsHtml}</div>
