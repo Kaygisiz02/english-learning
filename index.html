@@ -571,6 +571,8 @@ const STAGES = [
 const REVIEW_GAPS_DAYS = [0, 1, 3, 7, 14, 30];
 const DAY_MS = 24 * 60 * 60 * 1000;
 const STORAGE_KEY = "eng600_progress_v1";
+const ERROR_LOG_STORAGE_KEY = "eng600_error_log_v1";
+const ERROR_LOG_MAX_ENTRIES = 50; // localStorage şişmesin diye en eski kayıtlar atılır
 
 /* ============================================================
    YARDIMCI FONKSİYONLAR
@@ -1728,6 +1730,7 @@ function loadProgress(){
     }
   }catch(e){
     console.warn("İlerleme yüklenemedi, sıfırdan başlanıyor.", e);
+    logError("loadProgress", e);
     progress = defaultProgress();
   }
 }
@@ -1739,10 +1742,90 @@ function saveProgress(){
       localStorage.setItem(STORAGE_KEY, JSON.stringify(progress));
     }catch(e){
       console.warn("İlerleme kaydedilemedi.", e);
+      logError("saveProgress", e);
       alert("Uyarı: İlerleme tarayıcıya kaydedilemedi. Depolama dolu olabilir.");
     }
   }, 300);
 }
+
+/* ============================================================
+   YEREL HATA GÜNLÜĞÜ
+   ============================================================
+   ÖNEMLİ: Bu, hiçbir veriyi dışarıya (bir sunucuya, üçüncü parti bir
+   analytics/hata izleme servisine) GÖNDERMEZ. Tamamen yerel: hatalar
+   sadece kullanıcının kendi tarayıcısındaki localStorage'da tutulur.
+   Geliştirici bir sorunu araştırmak isterse, kullanıcıdan İlerleme
+   Karnesi sayfasındaki "Hata Günlüğünü Dışa Aktar" ile bir JSON dosyası
+   istemesi gerekir — otomatik/arka planda hiçbir veri paylaşımı yoktur.
+   ============================================================ */
+function getErrorLog(){
+  try{
+    const raw = localStorage.getItem(ERROR_LOG_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  }catch(e){
+    return [];
+  }
+}
+
+function logError(context, error){
+  try{
+    const log = getErrorLog();
+    log.push({
+      time: new Date().toISOString(),
+      context: context || "bilinmiyor",
+      message: (error && error.message) ? error.message : String(error),
+      stack: (error && error.stack) ? String(error.stack).slice(0, 2000) : null, // aşırı uzun stack'leri kırp
+      view: (typeof currentView !== "undefined") ? currentView : null,
+      userAgent: (typeof navigator !== "undefined" && navigator.userAgent) ? navigator.userAgent : null,
+    });
+    // Günlüğü sabit bir üst sınırda tutuyoruz — en eski kayıtlar atılır.
+    // Bu bir kullanım istatistiği değil, sadece "son N hata" bir hata
+    // ayıklama yardımcısıdır.
+    while(log.length > ERROR_LOG_MAX_ENTRIES) log.shift();
+    localStorage.setItem(ERROR_LOG_STORAGE_KEY, JSON.stringify(log));
+  }catch(e){
+    // Günlükleme sırasında hata olursa (örn. localStorage tamamen doluysa)
+    // sessizce vazgeç — hata günlüğü tutmaya çalışırken yeni bir hataya
+    // yol açıp kullanıcıyı rahatsız etmenin anlamı yok.
+  }
+}
+
+function clearErrorLog(){
+  try{
+    localStorage.removeItem(ERROR_LOG_STORAGE_KEY);
+  }catch(e){}
+}
+
+function exportErrorLog(){
+  const log = getErrorLog();
+  if(log.length === 0){
+    alert("Kayıtlı hata bulunmuyor.");
+    return;
+  }
+  const blob = new Blob([JSON.stringify(log, null, 2)], {type:"application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "ingilizce800_hata_gunlugu_" + todayStr() + ".json";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// Uygulama kodundaki try/catch bloklarının yakalayamadığı, beklenmeyen
+// (programlama hatası niteliğindeki) istisnaları yakalar. Bu, kullanıcının
+// ekranında sessizce "hiçbir şey olmuyor" gibi görünen durumların
+// arkasındaki gerçek nedeni sonradan (kullanıcı hata günlüğünü dışa
+// aktarırsa) görebilmemizi sağlar.
+window.addEventListener("error", function(event){
+  logError("window.onerror", event.error || { message: event.message });
+});
+window.addEventListener("unhandledrejection", function(event){
+  logError("unhandledrejection", event.reason || { message: "Promise reddedildi" });
+});
+
+
 
 function getNextNewId(){
   for(let i=1;i<=800;i++){ if(!progress.learned[i]) return i; }
@@ -3004,8 +3087,34 @@ function renderStats(){
       </div>
       <h3 class="subheading">Aşama Bazlı İlerleme</h3>
       <div class="stage-detail-list">${stageRows}</div>
+      ${renderErrorLogSection()}
       <button class="btn-secondary" onclick="setView('home')">Ana Sayfaya Dön</button>
     </div>`;
+}
+
+// İlerleme Karnesi sayfasının altında gösterilen, yerel hata günlüğü
+// durumunu özetleyen küçük bölüm. Günlük boşsa sadece "hata kaydı yok"
+// bilgisi verir (dışa aktarma/temizleme butonları gösterilmez, çünkü
+// yapacak bir şey yok); doluysa sayı + iki aksiyon sunar.
+function renderErrorLogSection(){
+  const count = getErrorLog().length;
+  if(count === 0){
+    return `
+      <h3 class="subheading">Hata Günlüğü</h3>
+      <p class="panel-text">Kayıtlı bir hata yok. Bu günlük, uygulamada beklenmedik bir sorun (örn. bir ekranın açılmaması) olursa sadece bu cihazda, tamamen yerel olarak tutulur — hiçbir veri dışarıya gönderilmez.</p>`;
+  }
+  return `
+    <h3 class="subheading">Hata Günlüğü</h3>
+    <p class="panel-text">${count} hata kaydı var. Bu kayıtlar sadece bu cihazda tutulur; bir sorun bildirmek istersen "Dışa Aktar" ile bir dosya olarak paylaşabilirsin.</p>
+    <div class="hero-buttons" style="margin-bottom:20px;">
+      <button class="btn-secondary" onclick="exportErrorLog()">Hata Günlüğünü Dışa Aktar</button>
+      <button class="btn-ghost" onclick="clearErrorLogAndRefresh()">Günlüğü Temizle</button>
+    </div>`;
+}
+
+function clearErrorLogAndRefresh(){
+  clearErrorLog();
+  renderStats();
 }
 
 /* ============================================================
@@ -3203,10 +3312,14 @@ window.addEventListener("DOMContentLoaded", function(){
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", function(){
     navigator.serviceWorker.register("./service-worker.js").catch(function(err){
-      // Kayıt başarısız olursa (örn. file:// üzerinden açılmışsa ya da
-      // tarayıcı desteklemiyorsa) sessizce yut — uygulama service worker
-      // olmadan da normal şekilde çalışmaya devam eder, sadece offline
-      // desteği ve "ana ekrana ekle" istemi çalışmaz.
+      // Kayıt başarısız olursa (örn. file:// üzerinden açılmışsa, tarayıcı
+      // desteklemiyorsa, ya da kısıtlı bir önizleme ortamındaysa) sessizce
+      // yut — uygulama service worker olmadan da normal şekilde çalışmaya
+      // devam eder, sadece offline desteği ve "ana ekrana ekle" istemi
+      // çalışmaz. Bilerek logError()'a bağlanmadı: bu, gerçek kullanım
+      // ortamlarında (https:// üzerinden barındırıldığında) neredeyse hiç
+      // olmayan, sık karşılaşılan zararsız bir durumdur — hata günlüğünü
+      // gürültüyle doldurmamak için sadece konsola yazdırıyoruz.
       console.warn("Service worker kaydı başarısız oldu:", err);
     });
   });
