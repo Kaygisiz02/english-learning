@@ -533,8 +533,7 @@ details[open] .preview-summary::after{content:" ▴";}
       </div>
       <div id="streak-badge" title="Günlük çalışma serisi" role="status"><span id="streak-flame" aria-hidden="true">🔥</span><span id="streak-count">0</span></div>
       <div id="progress-track" role="progressbar" aria-label="Genel ilerleme" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="progress-fill"></div></div>
-      <button class="nav-btn" onclick="exportProgress()" title="İlerlemeni dosyaya kaydet">Yedekle</button>
-      <button class="nav-btn" onclick="triggerImport()" title="Yedekten geri yükle">Geri Yükle</button>
+      <button class="nav-btn" onclick="setView('settings')" title="Ayarlar" aria-label="Ayarlar">⚙️ Ayarlar</button>
       <input type="file" id="import-file" accept=".json" class="hidden" onchange="importProgress(event)" aria-label="Yedek dosyası seç">
     </div>
   </div>
@@ -546,6 +545,7 @@ details[open] .preview-summary::after{content:" ▴";}
     <div id="view-mistakes" class="hidden"></div>
     <div id="view-stats" class="hidden"></div>
     <div id="view-browse" class="hidden"></div>
+    <div id="view-settings" class="hidden"></div>
   </main>
 </div>
 
@@ -1892,6 +1892,48 @@ function getPatternSiblings(id){
 /* ============================================================
    YEDEKLEME / GERİ YÜKLEME
    ============================================================ */
+/* ============================================================
+   AYARLAR
+   ============================================================
+   Uygulamanın tüm "ayar niteliğindeki" kontrollerini tek bir sayfada
+   toplar: günlük yeni cümle hedefi, bildirim tercihi, yedekleme/geri
+   yükleme, ve yerel hata günlüğü. Bunlar önceden ana sayfa, topbar ve
+   İlerleme Karnesi sayfasına dağılmış durumdaydı; kullanıcının "ayar"
+   aradığında tek bir yere bakabilmesi için buraya taşındı.
+   ============================================================ */
+function renderSettings(){
+  const el = document.getElementById("view-settings");
+  const dailyCount = (progress.settings && progress.settings.dailyNewCount) || 8;
+
+  el.innerHTML = `
+    <div class="panel">
+      <h2 class="panel-title">Ayarlar</h2>
+
+      <h3 class="subheading" style="margin-top:0;">Günlük Hedef</h3>
+      <div class="daily-count-row">
+        Günlük yeni cümle sayısı:
+        <select class="daily-count-select" onchange="setDailyNewCount(this.value)">
+          ${[5,8,10,15,20].map(n => `<option value="${n}" ${n===dailyCount?"selected":""}>${n}</option>`).join("")}
+        </select>
+      </div>
+      ${dailyCount >= 15 ? `<p class="daily-count-warning">Not: Yüksek bir sayı seçtin. Her yeni cümle önümüzdeki günlerde tekrar olarak geri dönecek, bu yüzden ${dailyCount} cümle/gün birkaç gün içinde tekrar yükünü belirgin şekilde artırabilir. Sürdürülebilir bulmuyorsan 8-10'a düşürmek daha rahat bir tempo sağlar.</p>` : ""}
+
+      <h3 class="subheading">Bildirimler</h3>
+      ${renderNotificationRow()}
+
+      <h3 class="subheading">Yedekleme</h3>
+      <p class="panel-text">İlerlemen bu cihazın tarayıcısında saklanıyor. Başka bir cihaza taşımak ya da yedek almak istersen aşağıdaki seçenekleri kullanabilirsin.</p>
+      <div class="hero-buttons" style="margin-bottom:20px;">
+        <button class="btn-secondary" onclick="exportProgress()">İlerlemeyi Yedekle</button>
+        <button class="btn-secondary" onclick="triggerImport()">Yedekten Geri Yükle</button>
+      </div>
+
+      ${renderErrorLogSection()}
+
+      <button class="btn-secondary" onclick="setView('home')">Ana Sayfaya Dön</button>
+    </div>`;
+}
+
 function exportProgress(){
   const blob = new Blob([JSON.stringify(progress, null, 2)], {type:"application/json"});
   const url = URL.createObjectURL(blob);
@@ -1937,13 +1979,14 @@ let practiceState = null; // { queue, total, sessionStats, feedback }
 let browseState = { stageFilter: 0, query: "" };
 let lessonPathExpanded = false; // Ana sayfada Ders Yolu varsayılan olarak daraltılmış (sadece mevcut+önceki aşama) gösterilir
 
-const VIEWS = ["home","lesson","practice","mistakes","stats","browse"];
+const VIEWS = ["home","lesson","practice","mistakes","stats","browse","settings"];
 
 // Her view'ın ekran okuyucuya duyurulacak Türkçe adı. VIEWS dizisiyle
 // aynı sırada tutulmasına gerek yok, sadece anahtarları eşleşmeli.
 const VIEW_ANNOUNCE_NAMES = {
   home: "Ana Sayfa", lesson: "Ders", practice: "Tekrar Pratiği",
-  mistakes: "Zayıf Noktalar", stats: "İlerleme Karnesi", browse: "Tüm Cümleler"
+  mistakes: "Zayıf Noktalar", stats: "İlerleme Karnesi", browse: "Tüm Cümleler",
+  settings: "Ayarlar"
 };
 
 function setView(name, skipLessonInit){
@@ -1961,6 +2004,7 @@ function setView(name, skipLessonInit){
   if(name === "mistakes") renderMistakes();
   if(name === "stats") renderStats();
   if(name === "browse") renderBrowse();
+  if(name === "settings") renderSettings();
   if(name === "home") renderHome();
   updateTopbar();
   window.scrollTo(0,0);
@@ -2093,17 +2137,8 @@ function renderHome(){
         <button class="btn-primary" onclick="setView('lesson')">${escapeHtml(heroBtnLabel)}</button>
         ${dueToday>0 ? `<button class="btn-secondary" onclick="setView('practice')">Tekrar Zamanı (${dueToday})</button>` : ""}
       </div>
-      <div class="daily-count-row">
-        Günlük yeni cümle sayısı:
-        <select class="daily-count-select" onchange="setDailyNewCount(this.value)">
-          ${[5,8,10,15,20].map(n => `<option value="${n}" ${n===dailyCount?"selected":""}>${n}</option>`).join("")}
-        </select>
-      </div>
-      ${dailyCount >= 15 ? `<p class="daily-count-warning">Not: Yüksek bir sayı seçtin. Her yeni cümle önümüzdeki günlerde tekrar olarak geri dönecek, bu yüzden ${dailyCount} cümle/gün birkaç gün içinde tekrar yükünü belirgin şekilde artırabilir. Sürdürülebilir bulmuyorsan 8-10'a düşürmek daha rahat bir tempo sağlar.</p>` : ""}
       <div class="week-strip">${weekHtml}</div>
     </div>
-
-    ${renderNotificationRow()}
 
     ${previewHtml ? `
     <details class="panel preview-details" style="margin-bottom:20px;">
@@ -3087,7 +3122,6 @@ function renderStats(){
       </div>
       <h3 class="subheading">Aşama Bazlı İlerleme</h3>
       <div class="stage-detail-list">${stageRows}</div>
-      ${renderErrorLogSection()}
       <button class="btn-secondary" onclick="setView('home')">Ana Sayfaya Dön</button>
     </div>`;
 }
@@ -3114,7 +3148,7 @@ function renderErrorLogSection(){
 
 function clearErrorLogAndRefresh(){
   clearErrorLog();
-  renderStats();
+  renderSettings();
 }
 
 /* ============================================================
@@ -3186,10 +3220,10 @@ function setDailyNewCount(v){
   if(!progress.settings) progress.settings = {};
   progress.settings.dailyNewCount = n;
   saveProgress();
-  // Ana Sayfa'yı hemen yeniden çiz ki yüksek sayı uyarısı (varsa) anında
-  // görünsün — aksi halde kullanıcı başka bir ekrana gidip dönene ya da
-  // sayfayı yenileyene kadar eski (güncellenmemiş) hâli görürdü.
-  renderHome();
+  // Ayarlar sayfasını hemen yeniden çiz ki yüksek sayı uyarısı (varsa)
+  // anında görünsün — aksi halde kullanıcı başka bir ekrana gidip dönene
+  // ya da sayfayı yenileyene kadar eski (güncellenmemiş) hâli görürdü.
+  renderSettings();
   // Not: initLesson her çağrıldığında güncel değeri okur; devam eden bir dersi etkilemez.
 }
 
